@@ -45,6 +45,32 @@ GitHub 是**从站**：本机到 github.com:443 长期被阻断（实测 `Empty 
 每 3 小时从 Gitee 自动同步 refs 与 Release（`scripts/ci/mirror-push.sh` +
 `scripts/ci/sync-releases.py`）。
 
+### 本仓（fork）的发版路径：打 tag 即发 GitHub Release
+
+上面的脚本与拓扑都属于上游。本仓只有一条可用路径，且已经机检化：
+
+```sh
+# 1) 改版本号（两处必须一致：package.json 与 src/shared/version.ts）
+# 2) 提交
+git push origin main
+git tag -a v2.17.5 -m "v2.17.5" && git push origin v2.17.5     # 3) 打 tag 即发版
+```
+
+`ci.yml` 的 `core` job 在 tag push 时会做四件事：跑四道门 → `pnpm pack` → 上传
+artifact（留 14 天）→ **用同一份 tgz 建 GitHub Release**（附件 = 不带 v 与带 v 两个
+tgz + `SHA256SUMS.txt`，正文取 `docs/project/.release-body-<ver>.md`，缺则取
+`CHANGELOG-DEV.md` 顶部一段）。
+
+三条刻意的约束：
+
+- **tag 名必须等于 `package.json` 版本号**，否则那一步直接红（防止把 main 的版本号当发布号）。
+- **不重编第二次**：Release 附件就是 CI 那道闸打出来的包，重编会造出可能与 CI 产物不一致的字节。
+- **幂等**：同名 Release 已存在就只补附件（`--clobber`），重复推同一个 tag 不会造出第二个 Release。
+
+> 想连 npm 一起发：本仓没有该包名的可信发布者，`publish.yml` 的 OIDC 换不到令牌；
+> 要么去上游仓发，要么把 `package.json` 的 `name` 改成自己的包名并配可信发布者。
+
+
 > 手工推送用 `bash scripts/push-all.sh`（默认只推 Gitee + AtomGit；
 > `PUSH_TAGS=1` 加推指向 HEAD 的 tag；`INCLUDE_GITHUB=1` 尽力推 GitHub）。
 > 远端命名用 `bash scripts/setup-remotes.sh` 整理（幂等）。

@@ -13,6 +13,11 @@ concurrency:
 
 jobs:
   core:
+    # 发版那一步要写 Release，故整 job 需要 contents: write。它是本文件里唯一
+    # 需要写权限的地方，且被 `if: startsWith(github.ref, 'refs/tags/v')` 挡住；
+    # 想收紧成「写权限只出现在独立 workflow」就把它挪进 release.yml（见 RELEASE.md）。
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +48,40 @@ jobs:
         with:
           name: host-remote-bridge-tgz
           path: artifacts/*.tgz
+      # 打 tag 即发版：发布件就是上一步 pack 出来的 tgz，不重编第二次 ——
+      # 重编会多一条可能与 CI 产物不一致的字节，等于给「Release 里到底是什么」留了个洞。
+      # 幂等：同名 Release 已存在就只补附件（--clobber 覆盖同名旧件）。
+      - name: 打 tag 时发布 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'ubuntu-latest' && matrix.node == 24
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          ver="$(node -p "require('./package.json').version")"
+          if [ "${tag#v}" != "$ver" ]; then
+            echo "::error::tag ${tag} 与 package.json 版本 ${ver} 不一致，拒绝发版"
+            exit 1
+          fi
+          # README 的两条安装命令引用的是**带 v** 的名字，而 pnpm pack 产出不带 v
+          # （PITFALLS.md / scripts/pack-release.sh 记的 v2.2.x 死链就是这个）。
+          cp "artifacts/host-remote-bridge-${ver}.tgz" "artifacts/host-remote-bridge-v${ver}.tgz"
+          ( cd artifacts && sha256sum *.tgz > SHA256SUMS.txt )
+          body="docs/project/.release-body-${ver}.md"
+          if [ ! -f "$body" ]; then
+            body="$(mktemp)"
+            # 与 release.sh 同一口径：CHANGELOG 顶部一段；awk 限行数而不是 `sed | head`
+            # （后者在 pipefail 下会 SIGPIPE 中断脚本，2026-10-21 实测踩过）。
+            awk 'f||/^## /{f=1; if(n++<60) print}' docs/project/CHANGELOG-DEV.md > "$body"
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release ${tag} 已存在，只补附件"
+            gh release upload "$tag" artifacts/*.tgz artifacts/SHA256SUMS.txt --clobber
+          else
+            gh release create "$tag" --title "${ver}" --notes-file "$body" \
+              artifacts/*.tgz artifacts/SHA256SUMS.txt
+          fi
+          gh release view "$tag" --json url,assets --jq '.url, (.assets[].name)'
           retention-days: 14
 
   browser:
