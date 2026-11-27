@@ -41,8 +41,13 @@ jobs:
       # → build）会在这里再跑一遍，所以这一步同时是**最严格的那道闸** ——
       # 与 AGENTS.md §2「发版前必须 dry-run，prepack 才触发完整门禁」同一口径。
       # 12 个矩阵组合各留一份 tgz 没有意义（内容按 commit 相同），只留 ubuntu + node 24。
-      - run: node -e "require('node:fs').mkdirSync('artifacts',{recursive:true})"
-      - run: pnpm pack --pack-destination artifacts
+      # 「打包 + 留档 + 发版」四步同一个条件：少一处判据就多一处漂移的可能。
+      # 代价：不再验证 `npm pack` 在 Windows/macOS 上也能跑 —— tgz 内容与平台无关
+      # （运行时依赖只有 lucide-react 与 ws，纯 JS，无原生模块），可以接受。
+      - if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        run: node -e "require('node:fs').mkdirSync('artifacts',{recursive:true})"
+      - if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        run: pnpm pack --pack-destination artifacts
       - uses: actions/upload-artifact@v4
         if: matrix.os == 'ubuntu-latest' && matrix.node == 24
         with:
