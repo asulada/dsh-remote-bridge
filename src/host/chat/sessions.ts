@@ -10,6 +10,7 @@
 import { HISTORY_FORMAT_VERSION } from '../capabilities.ts'
 import { ApiError } from '../errors.ts'
 import { applyHistoryBudget, compactHistoryEvents } from '../history-budget.ts'
+import { projectMediaIntoHistory } from './media-blocks.ts'
 import { resolveAuthorizedPath, wireRelative } from '../path-policy.ts'
 import { randomUUID } from 'node:crypto'
 import { lstat } from 'node:fs/promises'
@@ -234,6 +235,11 @@ export const sessionsMethods = {
       ...(options.maxMessages === undefined ? {} : { maxMessages: options.maxMessages }),
     }
     const raw = unwrapDsh(await this.api.sessions.history({ rpcId: randomUUID(), payload }))
+    // **媒体投影**在字节预算之前：它给 `assistant/message` 的 content 追加
+    // `{type:'media', …}` 块（助手正文里提到的图片/视频路径）。放在预算之前，
+    // 才有机会被下面这套"超预算就裁"的逻辑看见；块本身只有几十字节，真正被裁掉的
+    // 还是工具输出那种大块。见 `media-blocks.ts` 的头部注释。
+    const projected = projectMediaIntoHistory(raw)
     // 出网前的字节预算。手机端必须把整份 JSON 先读进内存才谈得上解析，
     // 而 history 是原样透传内核事件的（工具输出单条就可能几 MB）——
     // 不设闸，「翻一次历史」就能变成卡顿甚至 OOM，且服务端毫无察觉。
@@ -241,7 +247,7 @@ export const sessionsMethods = {
     // 带上**事件形状版本**：客户端可据此判断「这份 events 我能不能解析」。
     // 本轮只声明、不校验 —— 强制校验会打断已发布客户端的 beforeSeq 分页
     // （它们不认识这个字段，也就谈不上带对版本）。详见 capabilities.ts 的说明。
-    const budgeted = applyHistoryBudget(raw)
+    const budgeted = applyHistoryBudget(projected)
     if (options.compact !== true) return { ...budgeted, historyFormatVersion: HISTORY_FORMAT_VERSION }
     // 请求式摘要（history-compact-v1，issue #IKXGYV）：先按预算兜底，再做有界摘要。
     // 摘要必然改形状，所以靠 `compact: true` 标记让客户端知道「这批不是全文缓存」。
@@ -358,7 +364,8 @@ export const sessionsMethods = {
       ...(options.maxMessages === undefined ? {} : { maxMessages: options.maxMessages }),
     }
     const raw = unwrapDsh(await this.api.sessions.history({ rpcId: randomUUID(), payload }))
-    return { ...applyHistoryBudget(raw), historyFormatVersion: HISTORY_FORMAT_VERSION }
+    // 媒体投影与 history() 同口径（同一个客户端不该在两条路径上看到两种形状）。
+    return { ...applyHistoryBudget(projectMediaIntoHistory(raw)), historyFormatVersion: HISTORY_FORMAT_VERSION }
   },
 
   async cancel(this: ChatAdapterInternals, principal: Principal, sessionId: string): Promise<void> {

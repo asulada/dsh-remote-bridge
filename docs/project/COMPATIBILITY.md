@@ -33,6 +33,24 @@ dsh-Chat 的协议基线为 bridge ≥ 2.10.0（协议 v3，子协议 `dsh-mobil
 （`ROADMAP.md` 的 `MOB-017`）。`POST /manage/config/text` 的 `includeTunnel` 是新字段，
 老客户端不传即维持旧行为（只探测本机网卡）。
 
+## 媒体块（`media-blocks-v1`，2026-11-27）
+
+助手回复里提到的图片/视频路径，桥侧投影成 `{type:'media', mediaType, path, name, size}`
+（历史 content 末尾追加 + `chat.message.committed` 的 `media` 数组）。契约见
+[API.md](API.md) 的「助手回复里的媒体」一节。
+
+| 项 | 桥 | `host-Chat`（Flutter / 鸿蒙） |
+| --- | --- | --- |
+| 投影媒体块 | ✅ 本版交付 | —— |
+| 历史里的 `media` 块 | ✅ | ❌ 未实现：`ContentParts.from` 只收 text/reasoning/image，块被忽略（不崩、不显示） |
+| 实时 `committed.media` | ✅ | ❌ 未实现：`MessageCommitted` 的解码表里没有这个字段（忽略） |
+| 图片渲染 | 字节走 `/roots/{id}/content` | ✅ 现成：`DsChatImage` / `ImageTile`（占位符那条老路），接 `media` 块是加法 |
+| 视频/音频渲染 | 字节同上（≤ 512 MiB） | ❌ 无播放器；先给「下载/外部打开」入口 |
+
+**为什么桥先交付**：投影是**一次实现、所有客户端受益**的部分，且它是纯加法 ——
+老客户端忽略块、行为与今天逐字节一致。客户端要真正“看见”，需要在
+`host-Chat` 仓实现块 → 图片/视频视图的映射（该仓自己的 issue）。
+
 ## 协议面与弃用迁移矩阵（2026-11-20 起）
 
 桥的**第一协议面**是 `/ws/mobile` 的双向帧（子协议 `dsh-mobile-v1`；`dshrb-v1` 另开通用内核调用面）。

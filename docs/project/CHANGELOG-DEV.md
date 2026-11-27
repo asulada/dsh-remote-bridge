@@ -1,3 +1,37 @@
+## 未发布 · 助手回复里的媒体投影成结构化块（`media-blocks-v1`，2026-11-27）
+
+**起因**：模型在回复里写出图片/视频路径（`![](D:/…/frame1s.png)`、正文裸路径）后，手机端
+**看不到东西**：`host-Chat` 的 markdown 渲染器没有图片能力，路径点击又只认 `/` 开头的绝对路径
+（Windows 的 `D:/…` 被判成相对路径）。桥此前是**逐字节透传**内核历史，一条路径到手机上就是一行字。
+
+**改法**（纯加性，老客户端忽略即退回今天的行为）：
+
+- 新模块 `src/host/chat/media-blocks.ts`：从助手正文认出 markdown 图片/链接目标与裸绝对路径，
+  扩展名命中媒体白名单才认（图片/视频/音频共 22 种），最多 8 块/消息。**纯文本变换**：
+  不 `stat`、不探测、不读文件。
+- 历史（REST `GET …/messages` 与 WS `history` 同源，含 `subagentHistory`）在字节预算**之前**
+  给 `assistant/message` 的 `content` 末尾追加 `{type:'media', mediaType, path, name}`，幂等。
+- 实时 `chat.message.committed` 新增 `media` 数组（**空则不带字段**）；committed 帧从不带
+  content，故不塞 content，也不动 `hasReplyContent` 的判据。
+- 新能力位 `media-blocks-v1`（`BRIDGE_CAPABILITIES`）；`HISTORY_FORMAT_VERSION` 不升
+  （只加可选内容）。
+- 契约同步：`docs/api/asyncapi.yaml`（`MediaBlock` schema + committed 的 `media` 字段）、
+  `API.md` 新增「助手回复里的媒体」一节、`COMPATIBILITY.md` 新增「媒体块」矩阵
+  （桥已交付 / 客户端未实现，客户端侧是另一个仓的事）、`STRUCTURE.md`、`INTERFACES.md`。
+- 回归用例 `tests/media-blocks.spec.ts`（识别、跳过、幂等、实时帧三态）与
+  `tests/capabilities.spec.ts` 的 `EVIDENCE` 条目。
+
+**边界**：相对路径不投影（历史里没记当时的 cwd，猜错会点开别的文件）、`reasoning` 块里的路径不算、
+不搬动/复制文件；授权根外的路径照给块，客户端取字节时得 `PATH_OUTSIDE_ROOTS`。
+
+**安全口径**（这一版最要紧的一条）：投影**不碰文件系统**，因此它不新增任何读面 ——
+没有新端点、没有新令牌、不搬字节；`path` 只是个提示，能不能取到字节由既有的授权判据说了算
+（`principal.rootIds` → 会话根最长匹配 → 双 realpath → `PATH_OUTSIDE_ROOTS`）。
+不 `stat` 还顺带堵了两个隐患：全局事件泵（`startEvents` 一次映射、按订阅者扇出，不知道"谁在看"）
+不会替任何设备去探任意路径、也不会把"某路径存在 + 多大"随帧发给没有该根授权的设备；
+同步 `statSync` 撞上慢盘或掉线的网络映射盘时卡住整个事件循环的风险也一并消失。
+块里因此**没有 `size`** —— 要大小走 `/roots/resolve`（那条路由本来就回 `size`，且过了授权）。
+
 ## v2.17.4 · IPv6 支持、设备名同步与 App 下载二维码收口（2026-11-25，issue #IKXRAD）
 
 **同版另外两项**：`ac9bfc9` 让候选地址、配置文本与监听过滤支持 IPv6（具体 IPv6 literal / `::`，URL 自动加方括号）；`fb2f877` 在 token 重连时读取 `X-DSH-Device-Name`，调用 `database.renameDevice()` 同步设备展示名，已配对设备重连一次即可改名，无需重新配对。

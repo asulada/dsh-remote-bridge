@@ -392,6 +392,30 @@ components:
         step: { type: integer }
         message: { type: object, additionalProperties: true }
         error: { type: object, additionalProperties: true }
+    MediaBlock:
+      type: object
+      description: |
+        A media file referenced by an assistant reply (capability `media-blocks-v1`).
+        Projected by the bridge; never sent by clients.
+        Deliberately carries **no filesystem-derived field**: projection is a pure text
+        transform (no `stat`), so every value here can be traced back to the reply text.
+        Size/mtime are not repeated here — call `/roots/resolve` (authorized) to get them.
+      required: [type, mediaType, path, name]
+      properties:
+        type: { type: string, enum: [media] }
+        mediaType:
+          type: string
+          description: |
+            Pick the renderer with this, not with the file extension: image/* (png, jpg, gif,
+            webp, bmp, avif, heic, heif, svg), video/* (mp4, m4v, mov, webm, mkv) and
+            audio/* (mp3, m4a, aac, wav, flac, ogg, opus) are the supported families.
+        path:
+          type: string
+          description: |
+            Server absolute path, forward slashes. Feed it to `/roots/resolve`; that route is
+            where existence, size and root authorization are settled. A `path` outside every
+            authorized root yields `PATH_OUTSIDE_ROOTS` there — the block itself is not a grant.
+        name: { type: string }
     ChatMessageCommitted:
       type: object
       description: |
@@ -417,6 +441,23 @@ components:
             Assistant commits only. `true` when the committed message contains reply text
             (a non-blank `text` block); `false` for intermediate commits whose content is only
             reasoning/tool-call blocks. Old clients may ignore it.
+        media:
+          type: array
+          description: |
+            Assistant commits only, and only when non-empty (capability `media-blocks-v1`).
+            Media files the reply text points at — markdown images/links and bare absolute paths
+            with a media extension — projected server-side into structured blocks, because mobile
+            markdown renderers have no image support and each client would otherwise re-implement
+            path sniffing (Windows `D:/…` is routinely misjudged as a relative path). The same
+            blocks are appended to the assistant message `content` in REST/WS history.
+
+            `path` is a **server absolute path**, same convention as `deliverables/presented`
+            files and the `[Image: source: …]` hand-off placeholder: resolve it with
+            `/roots/resolve` to get a `rootId` + relative path, then read bytes with
+            `/roots/{rootId}/content`. A path outside every root the device may access yields
+            `PATH_OUTSIDE_ROOTS` — render "unavailable" rather than hiding the block.
+          items:
+            $ref: '#/components/schemas/MediaBlock'
     ChatApprovalRequested:
       type: object
       description: |

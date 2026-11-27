@@ -417,6 +417,10 @@ export type PromptContentPartLike / FileUploadsLike / AttachmentStoreLike / Sess
 | `chat/hitl.ts` | `listPendingApprovals` / `replayPendingApprovals` / `replayPendingQuestions` / `decideApproval` / `listUserQuestions` / `answerUserQuestion` / `cancelUserQuestion` |
 | `chat/models-commands.ts` | `listAgentPresets` / `listPermissionPresets` / `selectAgentPreset` / `models` / `selectModel` / `listCommands` / `executeCommand` |
 
+`chat/media-blocks.ts` **不是**方法家族（没有混进 `ChatAdapterInternals`），而是历史与实时两条路
+共用的纯函数投影：`mediaBlocksOfMessage`（一条助手消息 → 媒体块）与 `projectMediaIntoHistory`
+（历史页 → 追加块，幂等）。契约见 [API.md](API.md) 的「助手回复里的媒体」一节。
+
 私有方法（`requireSession` 等）**不在** `DshChatAdapter` 的合并接口里，只出现在
 `ChatAdapterInternals` 与各家族的 `*InternalMethods` 上；跨模块导入仍可照旧从
 `src/host/chat-adapter.ts` 拿全部旧导出（`export *` + 具名 re-export）。
@@ -598,6 +602,14 @@ export const PLUGIN_VERSION: string          // shared/version.ts，与 package.
 | `export function normalizeDshEvent` | `src/host/chat/access.ts` | function |
 | `export const accessMethods` | `src/host/chat/access.ts` | const（混入对象） |
 | `export const sessionsMethods` | `src/host/chat/sessions.ts` | const（混入对象） |
+| `export function mediaRefsInText` | `src/host/chat/media-blocks.ts` | function |
+| `export function mediaTypeForName` | `src/host/chat/media-blocks.ts` | function |
+| `export function baseNameOf` | `src/host/chat/media-blocks.ts` | function |
+| `export function mediaBlocksOfText` | `src/host/chat/media-blocks.ts` | function |
+| `export function mediaBlocksOfMessage` | `src/host/chat/media-blocks.ts` | function |
+| `export function projectMediaIntoHistory` | `src/host/chat/media-blocks.ts` | function |
+| `export interface MediaBlockView` | `src/host/chat/media-blocks.ts` | interface（wire 形状） |
+| `export const MEDIA_BLOCK_MAX_PER_MESSAGE` | `src/host/chat/media-blocks.ts` | const |
 | `export const contentMethods` | `src/host/chat/content.ts` | const（混入对象） |
 | `export const hitlMethods` | `src/host/chat/hitl.ts` | const（混入对象） |
 | `export const modelsCommandsMethods` | `src/host/chat/models-commands.ts` | const（混入对象） |

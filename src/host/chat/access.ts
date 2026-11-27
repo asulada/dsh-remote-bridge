@@ -13,6 +13,7 @@ import type { Principal, WorkspaceEvent } from '../../shared/contracts.ts'
 import type { StoredRoot } from '../database.ts'
 import { SESSION_VISIBILITY_CACHE_LIMIT, SESSION_VISIBILITY_TTL_MS, approvalRisk, isRecord, matchRoot, principalKey, unwrapDsh } from '../chat-contracts.ts'
 import type { ChatAdapterInternals, ChatSessionView, ChatWorkspaceView, DshWorkspaceSummary } from '../chat-contracts.ts'
+import { mediaBlocksOfMessage } from './media-blocks.ts'
 
 /** access 家族的公开面（进 `DshChatAdapter` 的合并接口）。 */
 export interface AccessMethods {
@@ -382,6 +383,19 @@ export function normalizeDshEvent(
           // 老客户端忽略它，行为退回「每条 assistant 消息都当结束」（即修复前的样子），
           // 不会坏。`user/message` 不带（用户消息本来就是一次落库）。
           ...(eventType === 'assistant/message' ? { hasReplyContent: hasReplyContentOf(eventData.message) } : {}),
+          // **媒体块**（助手正文里提到的图片/视频路径）。历史那一路由
+          // `sessions.ts` 的 `projectMediaIntoHistory()` 追加进 content；实时这一路
+          // 单独放一个 `media` 数组，理由是 committed 帧**从来不带 content**
+          // （客户端靠 delta 拼正文，见 `host-Chat` 的 `MessageCommitted`），
+          // 硬塞 content 会与"清流后重新拉历史"的时序打架。
+          //
+          // 空数组**不带**：绝大多数消息没有媒体，不该在每一帧上多一个字段。
+          // 老客户端忽略未知字段 → 行为不变（现在它们本来也不渲染助手的媒体路径）。
+          ...(() => {
+            if (eventType !== 'assistant/message') return {}
+            const media = mediaBlocksOfMessage(eventData.message)
+            return media.length === 0 ? {} : { media }
+          })(),
         },
       }
     }

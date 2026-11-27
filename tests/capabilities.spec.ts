@@ -85,6 +85,9 @@ const EVIDENCE: Record<string, { openapi?: string[]; asyncapi?: string[] }> = {
   // 依据是 AsyncAPI history 帧 description 里的参数说明（data 没有 per-kind schema，
   // 所以用字面量自指：description 里必须出现 `history-compact-v1` 这四个字符）。
   'history-compact-v1': { asyncapi: ['history-compact-v1'] },
+  // 媒体块（2026-11-27）：依据是 `chat.message.committed` 的 `media` 字段与
+  // `MediaBlock` schema，两者的 description 里都写了能力位名（同 history-compact-v1 的理由）。
+  'media-blocks-v1': { asyncapi: ['media-blocks-v1'] },
   'interaction-replay-v1': {},
   // 后台任务：三条能力位分别指向自己的端点（list / output / kill 形态不同，
   // 合并成一条会让「只有 kill 可用」的中间态被误判成完整可用）。

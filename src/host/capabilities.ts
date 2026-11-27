@@ -93,6 +93,11 @@ export const BRIDGE_CAPABILITIES: readonly string[] = [
   // 事件里每个超长字符串压到「首 512 + 标记 + 尾 512」，响应带 `compact: true` 标明
   // 「这批是摘要、别当全文缓存」。纯服务端投影，`beforeSeq` 翻页照旧可用。
   'history-compact-v1', // 见 history-budget.ts compactHistoryEvents：AsyncAPI history 帧 description
+  // 助手正文里的媒体引用投影（2026-11-27）：历史 content 里追加 `{type:'media'}` 块、
+  // 实时 `chat.message.committed` 带 `media` 数组。为什么必须是独立一位：老桥只透传内核
+  // 原文，助手说的 `![](D:/…/x.png)` 到客户端就是一行文字；客户端要靠这个位区分
+  // 「服务端没投影」与「这条消息里真的没有媒体」。
+  'media-blocks-v1', // AsyncAPI chat.message.committed 的 media 字段（见 media-blocks.ts）
   'interaction-replay-v1', // 见 chat-adapter.replayPending*：新连接会补推仍待处理的审批/提问
   'session-snapshot-v1', // chat.session.snapshot：订阅基线（持久 seq 的切点），供断档检测
   // —— /ws/mobile 会话投影读取（2026-10-28）：都读 session/projections，不需额外内核服务 ——

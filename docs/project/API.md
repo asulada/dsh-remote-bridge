@@ -759,6 +759,56 @@ assistant 消息，只有最后那条含正文。桥此前只送了 `role`，客
 向后兼容：新增字段，老客户端忽略它 → 行为退回修复前（每条 assistant 消息都当结束），不会坏。
 `turn.end` 的 `reason` 仍是「这一轮怎么结束的」的唯一权威来源（尤其 `max-tokens`）。
 
+### 助手回复里的媒体（媒体块，能力位 `media-blocks-v1`）
+
+模型在回复里指到一张图、一段视频，桥在**出网前**把这条路径变成一个结构化块：
+
+```json
+{ "type": "media", "mediaType": "image/png", "path": "D:/Programs/x/frame1s.png", "name": "frame1s.png" }
+```
+
+两个落点，形状相同：
+
+| 落点 | 位置 |
+|---|---|
+| 历史 | `assistant/message` 事件的 `data.message.content` 末尾**追加**（REST `GET /chat/sessions/{id}/messages` 与 WS `history` 帧同源） |
+| 实时 | `chat.message.committed` 的 `data.media` 数组，**空则不带该字段** |
+
+**为什么桥来做**：手机端的 markdown 渲染器没有图片能力（`host-Chat` 的 `app/lib/ui/md_view.dart`
+全文无 image），路径点击又只认 `/` 开头的绝对路径（`app/lib/ui/workspace_link.dart:44`）——
+于是 Windows 的 `D:/…/x.png` 点不动、`D:/…/x.md` 被拼成相对路径后 404。让每个客户端各写一遍
+路径嗅探，就是把这套半吊子实现复制两遍。
+
+**识别规则**（`src/host/chat/media-blocks.ts`）：
+
+- 三种写法：markdown 图片 `![](path)`、markdown 链接 `[](path)`、正文裸绝对路径；
+- 只认白名单扩展名——图片 png/jpg/jpeg/gif/webp/bmp/avif/heic/heif/svg、视频 mp4/m4v/mov/webm/mkv、
+  音频 mp3/m4a/aac/wav/flac/ogg/opus。**不在表里的一律不当媒体**；
+- `http(s)://` 不算（那是网络资源，不能拿去 `/roots/resolve`）；
+- 最多 8 条/消息；
+- **不碰文件系统**：不 `stat`、不探测、不读任何文件。于是「不存在 / 不是普通文件 / 没权限」
+  全都不在这里判 —— 客户端取字节那一步才由授权与上限去卡（`PATH_NOT_FOUND` /
+  `file-too-large` / `PATH_OUTSIDE_ROOTS`）。桥只保证一件事：**块里每个字段都能在正文里
+  找到出处**（`size` 因此不出现，要大小就走 `/roots/resolve`，那条路由本来就会回它）。
+
+**`path` 怎么用**：它是**服务器绝对路径**（正斜杠），与 `deliverables/presented` 的 `files[].path`、
+`[Image: source: …]` 占位同口径。取字节两步：
+
+1. `GET /api/v1/roots/resolve?path=<path>` → `{rootId, relativePath}`（这条路由刻意不回根的真实路径）；
+2. `GET /api/v1/roots/{rootId}/content?path=<relativePath>`。
+
+WS 一侧同一套语义：`file-resolve` 只认**相对会话授权根**的 wire 路径，因此客户端可以
+先 resolve 再 `file-download`。**授权根外的路径块照给、字节取不到**（`404 PATH_OUTSIDE_ROOTS`）——
+用户要的是「知道有这张图」，客户端显示「无法读取」比整块消失诚实。
+
+**不投影什么**：相对路径（历史里没有任何地方记着"这条消息当时的 cwd"，按今天的 cwd 猜会
+点开**别的文件**）、`reasoning` 块里的路径（那是模型的思考草稿）、以及任何搬动/复制文件的行为
+（`path` 指回原文件）。
+
+**兼容性**：新增块类型 + 新增可选字段，`HISTORY_FORMAT_VERSION` **不升**（只加可选内容）。
+老客户端把 `media` 块当未知块忽略（`host-Chat` 的 `ContentParts.from` 只收 text/reasoning/image），
+行为与今天一致。客户端侧要渲染图片/视频是**另一件事**，见 `COMPATIBILITY.md` 的媒体矩阵。
+
 ### 一轮怎么结束的（`chat.turn.end` 的 `reason`）
 
 `chat.turn.end` 的 `data` 里带 `reason`，**原样透传**自内核，本插件不解读、不写白名单。
