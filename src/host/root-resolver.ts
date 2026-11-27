@@ -175,3 +175,66 @@ export async function inspectResolvedPath(root: StoredRoot, wirePath: string): P
     contentType: contentTypeFor(wirePath),
   }
 }
+
+/**
+ * 会话侧用的根匹配：返回**那个根对象本身**与相对路径。
+ *
+ * 与 [matchAuthorizedRoot] 的区别只有两点：第一个匹配就返回（不取最长）、回来的
+ * 是 `StoredRoot` 而不只是 `rootId` —— 会话要知道根的全貌（label、realPath）。
+ */
+export function matchRoot(roots: StoredRoot[], cwd: string): { root: StoredRoot; relative: string } | undefined {
+  for (const root of roots) {
+    const relative = wireRelative(root.realPath, cwd)
+    if (relative !== undefined) return { root, relative }
+  }
+  return undefined
+}
+
+/**
+ * [matchRoot] 的 realpath 归一版：**先解析候选路径再去比**。
+ *
+ * 授权根入库时（`roots.addRoot`）解析过符号链接，存的是真实路径；而内核/调用方给的路径
+ * 往往是「当初用的那个字符串」，未必解析过。两边直接比字符串会在两类机器上整片失配：
+ * - macOS：`os.tmpdir()` 是 `/var/folders/…`，realpath 后是 `/private/var/folders/…`；
+ * - Windows：8.3 短名（`C:\Users\RUNNER~1\…`）realpath 后是长名。
+ *
+ * 2026-11-27 的 CI 就是这么红的：`workspaces` 帧返回空数组，fixture 对拍立刻发现
+ * （本机长名一致，所以只在 CI 现形）。
+ *
+ * 只做「realpath 失败就退回原串」不够 —— 候选是 `根内/还没建出来的文件` 时 realpath
+ * 必然抛 ENOENT，退回原串等于拿未解析的写法去比已解析的根，于是同一个文件「存在时可见、
+ * 尚未创建时不可见」（同一天的 CI 抓到了这半截，macOS 与 Windows 各红一条用例）。
+ * 所以这里解析**最深的已存在祖先**，再把剩下的段落拼回去：末段不存在不再是失配的理由。
+ *
+ * 连盘符/根都解析不出来时退回原串比较：宁可判不可见，也不要因为一次 stat 失败把整条
+ * 列表打崩。
+ */
+export async function matchRootResolved(
+  roots: StoredRoot[],
+  candidate: string,
+): Promise<{ root: StoredRoot; relative: string } | undefined> {
+  const resolved = await resolveExistingPrefix(candidate)
+  return matchRoot(roots, resolved ?? candidate)
+}
+
+/**
+ * 把路径的**最深已存在祖先**解析成真实路径，再把不存在的尾段拼回去。
+ *
+ * 全都不存在（连盘符/根都没有）时返回 `undefined`，交给调用方退回原串比较。
+ */
+async function resolveExistingPrefix(candidate: string): Promise<string | undefined> {
+  const missing: string[] = []
+  let current = candidate
+  for (;;) {
+    try {
+      const resolved = await realpath(current)
+      return missing.length === 0 ? resolved : path.join(resolved, ...missing.slice().reverse())
+    } catch {
+      const parent = path.dirname(current)
+      // 到顶了（`/` 或 `C:\`）：连根都不存在，没有可解析的祖先。
+      if (parent === current) return undefined
+      missing.push(path.basename(current))
+      current = parent
+    }
+  }
+}

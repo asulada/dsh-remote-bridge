@@ -447,7 +447,8 @@ isSessionAuthorized(principal, sessionId)     startEvents(signal, emit)
 模块级导出（拆分后仍在 `src/host/chat-adapter.ts` 的导出面上，实体位置见括号）：
 `unwrapDsh`（拆 DSH RPC 壳并映射错误，`chat-contracts.ts`）、`normalizeDshEvent`（帧归一，`chat/access.ts`）、
 `turnFailureOf`（`chat/access.ts`）、`approvalReplayEvents` / `questionReplayEvents`（`chat/hitl.ts`）、
-`redactApprovalText`（`chat-contracts.ts`）、`isRecord` / `matchRoot` / `approvalRisk`（`chat-contracts.ts`）。
+`redactApprovalText`（`chat-contracts.ts`）、`isRecord` / `approvalRisk`（`chat-contracts.ts`）。
+`matchRoot` / `matchRootResolved` 已搬到 `root-resolver.ts`（本文件只再导出，签名与导入路径不变）。
 
 ### 4.6 `src/host/database.ts`
 
@@ -599,7 +600,8 @@ export const PLUGIN_VERSION: string          // shared/version.ts，与 package.
 | `export class DshChatAdapter` | `src/host/chat-adapter.ts` | class（装配根） |
 | `export interface ChatAdapterInternals` | `src/host/chat-contracts.ts` | interface（五族混入对象的 `this`） |
 | `export function unwrapDsh` | `src/host/chat-contracts.ts` | function |
-| `export async function matchRootResolved` | `src/host/chat-contracts.ts` | function（`matchRoot` 的 realpath 归一版，CI 的 macOS/Windows 短名与符号链接靠它对齐） |
+| `export async function matchRootResolved` | `src/host/root-resolver.ts` | function（`matchRoot` 的 realpath 归一版：解析最深的已存在祖先再比，CI 的 macOS `/private/var` 与 Windows 短名靠它对齐；`chat-contracts.ts` 只做再导出） |
+| `export function matchRoot` | `src/host/root-resolver.ts` | function（会话侧「路径落在哪个根内」，第一个匹配即返回，与 `matchAuthorizedRoot` 的最长匹配语义不同） |
 | `export function normalizeDshEvent` | `src/host/chat/access.ts` | function |
 | `export const accessMethods` | `src/host/chat/access.ts` | const（混入对象） |
 | `export const sessionsMethods` | `src/host/chat/sessions.ts` | const（混入对象） |

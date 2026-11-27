@@ -22,7 +22,20 @@ fixture 期望一条。根因不在 fixture：授权根入库时（`roots.addRoo
 
 **顺带修掉的一处**：`media-blocks` 的 `file://` 清理在 POSIX 上认不出 `file:////tmp/x.png`
 （`file://` 剥完剩 `//tmp/x.png`，与 `/tmp/x.png` 不等）—— 用例改用 `pathToFileURL` 拼 URL，
-并补一条多斜杠写法的断言。
+并补一条多斜杠写法的断言。同一条路径上还有第二个「只在别的机器上现形」的差异：
+`pathToFileURL` 会把 `~` 编码成 `%7E`（Windows 8.3 短名 `RUNNER~1` 因此变成 `RUNNER%7E1`），
+`cleanupCandidate` 现在先做百分号解码（解不开就原样留着，`100%.png` 这种不该抛）。
+
+**第二轮 CI 又红出的两处（同日追加）**：
+
+- `matchRootResolved` 只写「realpath 失败退回原串」是半截：末段尚不存在时（根内一个还没建出来
+  的文件）realpath 抛 ENOENT，退回原串等于拿未解析写法去比已解析的根 —— 同一个文件「存在时
+  可见、尚未创建时不可见」。改成解析**最深的已存在祖先**再拼回尾段（`resolveExistingPrefix`）。
+- 这两个函数连同 `matchRoot` 从 `chat-contracts.ts` 挪到 `root-resolver.ts`：加起来 619 行，
+  撞了 600 行预算；`chat-contracts.ts` 保留再导出，`access.ts` / `sessions.ts` 导入路径不变。
+- `tests/frame-fixtures.spec.ts` 的「词表与 asyncapi enum 一致」在 Windows runner 上红：工作区
+  是 CRLF（`core.autocrlf=true`），而抽取类型块的正则用 `\n\n` 收尾。读源码做正则抽取的用例
+  现在先把 `\r\n` 归一成 `\n`。
 
 ## 未发布 · 助手回复里的媒体投影成结构化块（`media-blocks-v1`，2026-11-27）
 

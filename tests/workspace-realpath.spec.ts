@@ -59,10 +59,27 @@ describe('matchRootResolved', () => {
     const roots = [root(await realpath(real))]
     const ghost = join(base, 'not-here', 'x.png')
     await expect(matchRootResolved(roots, ghost)).resolves.toBeUndefined()
-    // 但若原串本身就在根内（例如根内一个尚未创建的文件），退回后照样能匹配。
+    // 若原串本身就在根内（例如根内一个尚未创建的文件），退回后照样能匹配。
     const inside = join(real, 'not-yet.md')
     const match = await matchRootResolved(roots, inside)
     expect(match?.relative).toBe('not-yet.md')
+  })
+
+  /**
+   * 这条是 2026-11-27 CI 真正红的那个形状：**末段还不存在，且整条路径都走别名**。
+   *
+   * 只做「realpath 失败就退回原串」是不够的 —— 退回原串等于拿未解析的写法去比已解析的根，
+   * 于是同一个文件「存在时可见、尚未创建时不可见」。必须解析最深的已存在祖先。
+   */
+  it('末段尚不存在时，也要先把已存在的祖先解析出来再比', async () => {
+    const roots = [root(await realpath(real))]
+    const viaAlias = join(alias, 'draft', 'not-yet.webm')
+    // 旧口径（realpath 失败即退回原串）在这里返回 undefined：退回的是 `alias/…` 这个
+    // 未解析写法，根本身是 `real` 的真实路径，两者字符串比不到一起。
+    expect(matchRoot(roots, viaAlias), '前提不成立：别名与真实路径写法相同，这条用例失去意义').toBeUndefined()
+    const match = await matchRootResolved(roots, viaAlias)
+    expect(match?.root.id).toBe('root-1')
+    expect(match?.relative).toBe('draft/not-yet.webm')
   })
 
   it('根外的真实路径一律不匹配（realpath 不能把越界洗白）', async () => {

@@ -127,6 +127,10 @@ function cleanupCandidate(raw: string): string | undefined {
   if (value === '') return undefined
   if (value.toLowerCase().startsWith('file://')) {
     value = value.slice('file://'.length)
+    // URL 的路径段按 URL 规则编码过：`pathToFileURL('C:/Users/RUNNER~1/a.png')` 给出的是
+    // `file:///C:/Users/RUNNER%7E1/a.png`。要还原成文件系统路径，就得先解码；解不开
+    // （正文里写着 `file:///C:/100%.png`，`%` 后面不是合法转义）就原样留着。
+    value = decodePercentEscapes(value)
     // `file://` 之后若是已经带前导斜杠的路径（POSIX 全是这种：`file://` + `/tmp/x.png`），
     // 拼出来就是 `file:////tmp/x.png`，剥前缀后剩 `//tmp/x.png` —— 与 `/tmp/x.png` 不等，
     // 于是正文里那种写法一个都认不出来。统一折成一个前导斜杠。
@@ -138,6 +142,20 @@ function cleanupCandidate(raw: string): string | undefined {
   value = value.replace(/[.,;:!?]+$/, '')
   if (value === '') return undefined
   return value.replace(/\\/g, '/')
+}
+
+/**
+ * 百分号解码，解不开就原样返回。
+ *
+ * `decodeURIComponent` 遇到孤立的 `%`（正文里写 `100%.png`、日志里 `%` 被当占位符）会抛
+ * `URIError` —— 一个坏字符不该让整条消息的识别失败，所以吞掉异常退回原串。
+ */
+function decodePercentEscapes(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
 }
 
 /** 绝对路径 + 扩展名命中媒体白名单。 */

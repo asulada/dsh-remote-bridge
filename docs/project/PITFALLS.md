@@ -1601,13 +1601,33 @@ stays uncompressed when the client turns compression off（钉住 `/ws/mobile` �
 两条路径指向同一个目录，比较结果却是「不在根内」→ 整条列表被过滤空。
 
 **怎么改**：需要拿「别人的路径」去和授权根比的场合，两侧先归一 —— 用 `matchRootResolved`
-（`matchRoot` 的 realpath 版，解析失败退回原串）。已改三处：`visibleWorkspaces`（因此变成
-async）、`sessionRootId`、`listSessions`。**不要**在 `matchRoot` 里静默加 realpath：它是同步纯
-函数，被 `ws-file-transfer` 这类每帧热路径调用，改成 IO 会把事件循环拖下水。
+（`matchRoot` 的 realpath 版，实现在 `root-resolver.ts`，`chat-contracts.ts` 再导出）。已改三处：
+`visibleWorkspaces`（因此变成 async）、`sessionRootId`、`listSessions`。**不要**在 `matchRoot`
+里静默加 realpath：它是同步纯函数，被 `ws-file-transfer` 这类每帧热路径调用，改成 IO 会把事件
+循环拖下水。
+
+**半截归一 = 还是错**：只写「realpath 失败就退回原串」会在「末段还不存在」时复现同一个 bug ——
+根内一个尚未创建的文件，realpath 抛 ENOENT，退回原串又拿未解析写法比已解析的根，于是同一个
+文件「存在时可见、尚未创建时不可见」。要解析**最深的已存在祖先**再把尾段拼回去
+（`root-resolver.ts` 的 `resolveExistingPrefix`）。同一天 CI 两轮红就是先只做了前一半。
 
 **怎么验**：`tests/workspace-realpath.spec.ts` —— 用目录符号链接（Windows 上建 junction，
 不需要管理员权限）造出「根按真实路径入库、候选走别名路径」的形状；纯字符串比较必然失配，
-归一后才匹配。本机长名一致，**只有这种构造才能复现**，靠跑同一个用例在本机绿是自欺。
+归一后才匹配。另有一条专盯「末段不存在且整条走别名」的形状。本机长名一致，**只有这种构造才能
+复现**，靠跑同一个用例在本机绿是自欺。
 
 **排查口径**：CI 红、本机绿，先问「这条判据吃的是路径还是内容」；吃路径的，先怀疑符号链接、
 8.3 短名、大小写、盘符、`\\?\` 前缀这五样，别急着改 fixture。
+### 读源码做正则抽取的用例要先归一 CRLF
+
+**症状**：`tests/frame-fixtures.spec.ts` 的「ServerFrameKind / ClientFrameType 词表与 asyncapi
+enum 一致」在 **Windows runner** 上红，报「ws-protocol.ts 里找不到 ServerFrameKind」，本机同样
+的用例却绿（或者反过来）。
+
+**为什么**：用例用 `export type X =([\s\S]*?)\n\n` 抽取类型块，而 checkout 出来的工作区可能是
+CRLF（`core.autocrlf=true` 的机器、GitHub 的 windows runner）。真实分隔是 `\r\n\r\n`，正则的
+`\n\n` 匹配不到 → 块为 null → 报「找不到」。
+
+**怎么改**：读源码后先 `.replace(/\r\n?/g, '\n')` 再上正则。判据是「这个正则跨行吗」，跨就要归一。
+
+**排查口径**：同一份源码在两个平台上解析结果不同，先查换行，再查编码/BOM。

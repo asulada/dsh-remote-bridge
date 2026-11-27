@@ -198,7 +198,10 @@ const LIVE_SERVER_KINDS: ReadonlyArray<{ kind: string; send: Record<string, unkn
 
 describe('golden fixtures：三端对拍基线（issue #IKXGYU）', () => {
   it('ServerFrameKind / ClientFrameType 词表与 asyncapi enum 一致（防漂移机检）', () => {
-    const protocol = readFileSync(new URL('../src/host/ws-protocol.ts', import.meta.url), 'utf8')
+    // CRLF 必须先归一：checkout 出来的工作区在 Windows 上可能带 `\r\n`（`core.autocrlf`
+    // 默认为 true 的机器、以及 GitHub 的 windows runner 都是这样），下面的类型块正则以
+    // `\n\n` 收尾，遇到 `\r\n\r\n` 全篇匹配不到 —— 2026-11-27 的 CI 就是这么红的。
+    const protocol = readFileSync(new URL('../src/host/ws-protocol.ts', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
     const extract = (typeName: string): string[] => {
       const block = protocol.match(new RegExp(`export type ${typeName} =([\\s\\S]*?)\\n\\n`))
       expect(block, `ws-protocol.ts 里找不到 ${typeName}`).not.toBeNull()
