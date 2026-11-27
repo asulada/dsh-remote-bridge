@@ -1,5 +1,6 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   MEDIA_BLOCK_MAX_PER_MESSAGE,
@@ -44,8 +45,11 @@ describe('mediaRefsInText', () => {
   it('accepts angle-bracket markdown targets and file:// URLs', () => {
     const spaced = join(sandbox, 'with space.png')
     expect(mediaRefsInText(`![](<${spaced}>)`)).toEqual([fwd(spaced)])
-    const asUrl = `file:///${fwd(png)}`
-    expect(mediaRefsInText(asUrl)).toEqual([fwd(png)])
+    // 用 `pathToFileURL` 而不是手拼 `file:///${path}`：POSIX 上路径本身以 `/` 开头，
+    // 手拼会得到 `file:////tmp/x.png`（多一个斜杠），那是拼 URL 的错，不是被测代码的错。
+    expect(mediaRefsInText(pathToFileURL(png).href)).toEqual([fwd(png)])
+    // 但正文里真的会出现多斜杠写法，所以也认。这条在 Windows 上走 `/C:/` 还原那支。
+    expect(mediaRefsInText(`file:////${fwd(png).replace(/^\/+/, '')}`)).toEqual([fwd(png)])
   })
 
   it('does not truncate paths at the full-width colon Chinese prose uses', () => {

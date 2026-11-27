@@ -1,3 +1,29 @@
+## 未发布 · 授权根匹配改走 realpath 归一（CI 上 `workspaces` 帧空、`sessions` 会跟着空）
+
+**起因**：2026-11-27 第一次真跑 CI（Actions 之前被关着），macOS 与 Windows 用例红在
+`tests/frame-fixtures.spec.ts` 的「帧形状漂移：workspaces」—— 实测帧是 `workspaces: []`，
+fixture 期望一条。根因不在 fixture：授权根入库时（`roots.addRoot`）解析过符号链接、存的是
+**真实路径**，而内核给的 `workspace.path` / `session.cwd` 是它当初用的那个字符串，未必解析过。
+纯字符串比较在两类机器上整片失配：
+
+- macOS：`os.tmpdir()` 是 `/var/folders/…`，realpath 后是 `/private/var/folders/…`；
+- Windows：8.3 短名（`C:\Users\RUNNER~1\…`）realpath 后是长名。
+
+本机长名一致，所以这个 bug 一直在，只是没被任何机器踩到。
+
+**改法**：`chat-contracts.ts` 新增 `matchRootResolved`（`matchRoot` 的 realpath 归一版，
+解析失败退回原串 —— 盘拔出/目录已删时宁可判不可见，也不让一次 stat 打崩整条列表）。
+三处比较改用它：`chat/access.ts` 的 `visibleWorkspaces`（改成 async）与 `sessionRootId`、
+`chat/sessions.ts` 的 `listSessions`。**纯加性**：只会让原本被误判为"根外"的条目重新可见，
+不会让根外的东西变可见（`matchRootResolved` 仍然只做最长匹配）。
+
+**回归用例**：`tests/workspace-realpath.spec.ts`（用目录符号链接复现同一形状：根按真实路径入库、
+候选走别名路径；另含"路径不存在退回原串""根外不匹配"两条边界）。
+
+**顺带修掉的一处**：`media-blocks` 的 `file://` 清理在 POSIX 上认不出 `file:////tmp/x.png`
+（`file://` 剥完剩 `//tmp/x.png`，与 `/tmp/x.png` 不等）—— 用例改用 `pathToFileURL` 拼 URL，
+并补一条多斜杠写法的断言。
+
 ## 未发布 · 助手回复里的媒体投影成结构化块（`media-blocks-v1`，2026-11-27）
 
 **起因**：模型在回复里写出图片/视频路径（`![](D:/…/frame1s.png)`、正文裸路径）后，手机端

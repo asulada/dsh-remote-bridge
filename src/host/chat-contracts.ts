@@ -13,6 +13,7 @@
  * - `unwrapDsh` / `normalizeDshEvent` 这类值的落脚点见各自函数上的注释。
  */
 import { FILE_UPLOAD_STREAM_UNSUPPORTED } from './bridge/file-upload-stream.ts'
+import { realpath } from 'node:fs/promises'
 import { ApiError } from './errors.ts'
 import { wireRelative } from './path-policy.ts'
 import type { Principal } from '../shared/contracts.ts'
@@ -512,6 +513,28 @@ export function matchRoot(roots: StoredRoot[], cwd: string): { root: StoredRoot;
     if (relative !== undefined) return { root, relative }
   }
   return undefined
+}
+
+/**
+ * `matchRoot` 的 realpath 归一版：**先解析候选路径再去比**。
+ *
+ * 授权根入库时（`roots.addRoot`）解析过符号链接，存的是真实路径；而内核/调用方给的路径
+ * 往往是「当初用的那个字符串」，未必解析过。两边直接比字符串会在两类机器上整片失配：
+ * - macOS：`os.tmpdir()` 是 `/var/folders/…`，realpath 后是 `/private/var/folders/…`；
+ * - Windows：8.3 短名（`C:\Users\RUNNER~1\…`）realpath 后是长名。
+ *
+ * 2026-11-27 的 CI 就是这么红的：`workspaces` 帧返回空数组，fixture 对拍立刻发现
+ * （本机长名一致，所以只在 CI 现形）。
+ *
+ * 解析失败（路径已删、盘已拔出）时退回原串比较：宁可判不可见，也不要因为一次 stat 失败
+ * 把整条列表打崩。
+ */
+export async function matchRootResolved(roots: StoredRoot[], candidate: string): Promise<{ root: StoredRoot; relative: string } | undefined> {
+  try {
+    return matchRoot(roots, await realpath(candidate))
+  } catch {
+    return matchRoot(roots, candidate)
+  }
 }
 
 export function approvalRisk(reason?: string): 'standard' | 'full-access' {

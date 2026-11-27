@@ -599,6 +599,7 @@ export const PLUGIN_VERSION: string          // shared/version.ts，与 package.
 | `export class DshChatAdapter` | `src/host/chat-adapter.ts` | class（装配根） |
 | `export interface ChatAdapterInternals` | `src/host/chat-contracts.ts` | interface（五族混入对象的 `this`） |
 | `export function unwrapDsh` | `src/host/chat-contracts.ts` | function |
+| `export async function matchRootResolved` | `src/host/chat-contracts.ts` | function（`matchRoot` 的 realpath 归一版，CI 的 macOS/Windows 短名与符号链接靠它对齐） |
 | `export function normalizeDshEvent` | `src/host/chat/access.ts` | function |
 | `export const accessMethods` | `src/host/chat/access.ts` | const（混入对象） |
 | `export const sessionsMethods` | `src/host/chat/sessions.ts` | const（混入对象） |

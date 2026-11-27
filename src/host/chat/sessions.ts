@@ -15,7 +15,7 @@ import { resolveAuthorizedPath, wireRelative } from '../path-policy.ts'
 import { randomUUID } from 'node:crypto'
 import { lstat } from 'node:fs/promises'
 import type { Principal } from '../../shared/contracts.ts'
-import { clampInt, matchRoot, unwrapDsh } from '../chat-contracts.ts'
+import { clampInt, matchRootResolved, unwrapDsh } from '../chat-contracts.ts'
 import type { ChatAdapterInternals, ChatSessionView, ChatWorkspaceView, CreateSessionOptions, DshSessionSummary } from '../chat-contracts.ts'
 
 /** sessions 家族的公开面（进 `DshChatAdapter` 的合并接口）。 */
@@ -96,7 +96,7 @@ export const sessionsMethods = {
     ])
     const value = unwrapDsh(sessionsResponse)
     const workspaceValue = unwrapDsh(workspaceResponse)
-    const workspaces = this.visibleWorkspaces(principal, workspaceValue.items)
+    const workspaces = await this.visibleWorkspaces(principal, workspaceValue.items)
     const archivedSessionIds = new Set(workspaceValue.archivedSessionIds)
     const roots = this.authorizedRoots(principal)
     const visible: ChatSessionView[] = []
@@ -107,7 +107,7 @@ export const sessionsMethods = {
       // 而 `cwdAbsolute` 与 `matchRoot` 用的必须是同一个值。
       const absoluteCwd = session.cwd
       if (absoluteCwd === undefined) continue
-      const match = matchRoot(roots, absoluteCwd)
+      const match = await matchRootResolved(roots, absoluteCwd)
       if (match === undefined) continue
       const workspace = workspaces.find(item => item.rootId === match.root.id && item.path === match.relative)
       const title = sessionTitle(session)
@@ -169,7 +169,7 @@ export const sessionsMethods = {
       rpcId: randomUUID(),
       payload: { workspaceId, title: normalized },
     }))
-    const renamed = this.visibleWorkspaces(principal, [value.workspace])[0]
+    const renamed = (await this.visibleWorkspaces(principal, [value.workspace]))[0]
     if (renamed === undefined) {
       throw new ApiError(403, 'WORKSPACE_OUTSIDE_ROOT', 'The renamed DSH workspace is outside the authorized roots.')
     }

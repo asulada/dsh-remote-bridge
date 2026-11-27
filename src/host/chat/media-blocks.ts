@@ -125,7 +125,13 @@ export function mediaRefsInText(text: string): string[] {
 function cleanupCandidate(raw: string): string | undefined {
   let value = raw.trim()
   if (value === '') return undefined
-  if (value.toLowerCase().startsWith('file://')) value = value.slice('file://'.length)
+  if (value.toLowerCase().startsWith('file://')) {
+    value = value.slice('file://'.length)
+    // `file://` 之后若是已经带前导斜杠的路径（POSIX 全是这种：`file://` + `/tmp/x.png`），
+    // 拼出来就是 `file:////tmp/x.png`，剥前缀后剩 `//tmp/x.png` —— 与 `/tmp/x.png` 不等，
+    // 于是正文里那种写法一个都认不出来。统一折成一个前导斜杠。
+    value = value.replace(/^\/+/, '/')
+  }
   // `file:///D:/x` → `/D:/x`，Windows 上这种多一个斜杠的写法必须还原。
   value = value.replace(/^\/([A-Za-z]:[\\/])/, '$1')
   // 尾随标点：句号/逗号/分号/右括号等在正文里很常见，但不属于路径。

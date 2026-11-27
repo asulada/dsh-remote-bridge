@@ -11,7 +11,7 @@ import { ApiError } from '../errors.ts'
 import { randomUUID } from 'node:crypto'
 import type { Principal, WorkspaceEvent } from '../../shared/contracts.ts'
 import type { StoredRoot } from '../database.ts'
-import { SESSION_VISIBILITY_CACHE_LIMIT, SESSION_VISIBILITY_TTL_MS, approvalRisk, isRecord, matchRoot, principalKey, unwrapDsh } from '../chat-contracts.ts'
+import { SESSION_VISIBILITY_CACHE_LIMIT, SESSION_VISIBILITY_TTL_MS, approvalRisk, isRecord, matchRootResolved, principalKey, unwrapDsh } from '../chat-contracts.ts'
 import type { ChatAdapterInternals, ChatSessionView, ChatWorkspaceView, DshWorkspaceSummary } from '../chat-contracts.ts'
 import { mediaBlocksOfMessage } from './media-blocks.ts'
 
@@ -27,7 +27,7 @@ export interface AccessInternalMethods {
   requireSession(principal: Principal, sessionId: string): Promise<ChatSessionView>
   rememberVisibility(key: string, visible: boolean): void
   requireWorkspace(principal: Principal, workspaceId: string): Promise<ChatWorkspaceView>
-  visibleWorkspaces(principal: Principal, items: DshWorkspaceSummary[]): ChatWorkspaceView[]
+  visibleWorkspaces(principal: Principal, items: DshWorkspaceSummary[]): Promise<ChatWorkspaceView[]>
   requireAuthorizedRoot(principal: Principal, rootId: string): StoredRoot
   authorizedRoots(principal: Principal): StoredRoot[]
   sessionRootId(sessionId: string): Promise<string | undefined>
@@ -141,11 +141,25 @@ export const accessMethods = {
     return workspace
   },
 
-  visibleWorkspaces(this: ChatAdapterInternals, principal: Principal, items: DshWorkspaceSummary[]): ChatWorkspaceView[] {
+  /**
+   * 工作区列表的可见性投影。
+   *
+   * **比较前两侧都要 realpath。** 授权根入库时（`roots.addRoot`）解析过符号链接，存的是
+   * 真实路径；而内核给的 `workspace.path` 是它建工作区时用的那个字符串，未必解析过。
+   * 直接比字符串会在两类机器上整片失配：
+   * - macOS：`os.tmpdir()` 是 `/var/folders/…`，realpath 后是 `/private/var/folders/…`；
+   * - Windows：8.3 短名（`C:\Users\RUNNER~1\…`）realpath 后是长名。
+   * 症状是 `workspaces` 帧返回空数组 —— 2026-11-27 的 CI 在 macOS / Windows 上就这么红了
+   * （本机长名一致，所以只在 CI 现形）。
+   *
+   * `realpath` 失败（工作区目录已删、盘已拔出）时退回原串：宁可让 `matchRoot` 判不可见，
+   * 也不要因为一次 stat 失败把整条列表打崩。
+   */
+  async visibleWorkspaces(this: ChatAdapterInternals, principal: Principal, items: DshWorkspaceSummary[]): Promise<ChatWorkspaceView[]> {
     const roots = this.authorizedRoots(principal)
     const visible: ChatWorkspaceView[] = []
     for (const workspace of items) {
-      const match = matchRoot(roots, workspace.path)
+      const match = await matchRootResolved(roots, workspace.path)
       if (match === undefined) continue
       visible.push({
         id: workspace.workspaceId,
@@ -185,7 +199,7 @@ export const accessMethods = {
       const value = unwrapDsh(await this.api.sessions.list({ rpcId: randomUUID(), payload: {} }))
       const session = value.items.find(item => item.sessionId === sessionId)
       if (session?.cwd === undefined) return undefined
-      const match = matchRoot(this.database.listRoots(), session.cwd)
+      const match = await matchRootResolved(this.database.listRoots(), session.cwd)
       if (match === undefined) return undefined
       this.sessionRootIds.set(sessionId, match.root.id)
       return match.root.id

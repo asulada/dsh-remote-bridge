@@ -226,7 +226,7 @@ host services 之上重建 0.1.x 的 `apiProxy` 面容，让 `chat-adapter` / `s
 
 | 文件 | 量级 | 改它会影响 |
 | --- | --- | --- |
-| `src/host/chat-adapter.ts` | ≈92 行（装配根） | 会话/历史/审批/提问/命令/附件全部 REST 行为 —— issue #26 阶段 9 拆成装配根 + `chat/` 五族（access 555 / sessions 515 / hitl 374 / content 204 / models-commands 163）+ `chat-contracts.ts`（570），六个模块都在 600 行预算内 |
+| `src/host/chat-adapter.ts` | ≈92 行（装配根） | 会话/历史/审批/提问/命令/附件全部 REST 行为 —— issue #26 阶段 9 拆成装配根 + `chat/` 五族（access 583 / sessions 532 / hitl 374 / content 204 / models-commands 163）+ `chat-contracts.ts`（593），六个模块都在 600 行预算内 |
 | `src/host/router.ts` | ≈345 行 | 分发组合根（healthz / 配对兑换 / `/manage` 门 + routes 循环）；改路由去 `src/host/routes/` 并同步 `routes/registry.ts`，鉴权与契约要求不变 |
 | `src/host/database.ts` | ≈410 行 | 持久层组合根：全部公开方法与跨表族事务都在这（2026-10-31 拆表族后）；改表结构去 `db/migrations.ts` 并跑 `migration-drill` |
 | `src/host/plugin-inventory.ts` | ≈640 行 | 插件清单与启停；profile 解析相关 |
@@ -303,14 +303,14 @@ host services 之上重建 0.1.x 的 `apiProxy` 面容，让 `chat-adapter` / `s
 | `src/host/bridge/proxy-options.ts` | file | CreateDsh02ApiProxyOptions（原工厂签名内联类型抽出的命名类型） |
 | `src/host/bridge/rpc.ts` | file | RPC 信封与超时纪律（call/ok/toRpcError/timeoutSignal，原样搬出） |
 | `src/host/chat-adapter.ts` | file | 会话 adapter 的**装配根**（issue #26 阶段 9，92 行）：class 字段 + 构造 + `interface DshChatAdapter` 合并声明 + `Object.assign` 装配五族方法 + re-export 旧导出面 |
-| `src/host/chat-contracts.ts` | file | 会话 adapter 的契约面（issue #26 阶段 9，570 行）：`DshApiProxy` 与全部视图类型/常量（原 13–482 行逐字搬入）+ `ChatAdapterInternals`（五族混入对象的 `this` 类型）+ `unwrapDsh`/`isRecord`/`matchRoot`/`approvalRisk`/`redactApprovalText` |
+| `src/host/chat-contracts.ts` | file | 会话 adapter 的契约面（issue #26 阶段 9，593 行）：`DshApiProxy` 与全部视图类型/常量（原 13–482 行逐字搬入）+ `ChatAdapterInternals`（五族混入对象的 `this` 类型）+ `unwrapDsh`/`isRecord`/`matchRoot`/`matchRootResolved`/`approvalRisk`/`redactApprovalText` |
 | `src/host/chat/` | dir | 会话 adapter 按端点族拆的混入模块（issue #26 阶段 9，2026-11-19 自 chat-adapter.ts 拆出）：方法体逐字搬入，`this` 统一 `ChatAdapterInternals` |
-| `src/host/chat/access.ts` | file | 可见性/授权根/事件接入（569 行）：`isSessionAuthorized`/`startEvents` + 私有 `requireSession`/`rememberVisibility`/`requireWorkspace`/`visibleWorkspaces`/`requireAuthorizedRoot`/`authorizedRoots`/`sessionRootId`/`commandAgent` + `normalizeDshEvent`/`turnFailureOf`/`hasReplyContentOf` |
+| `src/host/chat/access.ts` | file | 可见性/授权根/事件接入（583 行）：`isSessionAuthorized`/`startEvents` + 私有 `requireSession`/`rememberVisibility`/`requireWorkspace`/`visibleWorkspaces`（async，比较前 realpath）/`requireAuthorizedRoot`/`authorizedRoots`/`sessionRootId`/`commandAgent` + `normalizeDshEvent`/`turnFailureOf`/`hasReplyContentOf` |
 | `src/host/chat/content.ts` | file | 会话内容（204 行）：`prompt`/`uploadAttachment`/`uploadAttachmentStream`/`readAttachment`/`readHandoffImage` |
 | `src/host/chat/hitl.ts` | file | 审批与提问（374 行）：`listPendingApprovals`/`replayPendingApprovals`/`replayPendingQuestions`/`decideApproval`/`listUserQuestions`/`answerUserQuestion`/`cancelUserQuestion` + 私有 `captureApproval`/`hasPendingApproval` + `publicApproval`/`approvalKey`/`approvalReplayEvents`/`questionReplayEvents` 等纯函数 |
 | `src/host/chat/models-commands.ts` | file | 预设/模型/命令（163 行）：`listAgentPresets`/`listPermissionPresets`/`selectAgentPreset`/`models`/`selectModel`/`listCommands`/`executeCommand` |
 | `src/host/chat/sessions.ts` | file | 会话与工作区读写（532 行）：`listSessions`/`listWorkspaces`/`createWorkspace`/`renameWorkspace`/`deleteWorkspace`/`createSessionInWorkspace`/`createSession`/`history`/`subagentHistory`/`cancel`/`renameSession`/`forkSession`/`archiveSession`/`sessionWait`/`sessionProjections` + 私有 `reusableBlankId`/`blankSessionInWorkspace`/`blankSessionAtPath` |
-| `src/host/chat/media-blocks.ts` | file | 助手正文的媒体引用投影（208 行，纯文本变换、不碰文件系统）：`MEDIA_BLOCK_MAX_PER_MESSAGE`/`MediaBlockView`/`mediaRefsInText`/`mediaTypeForName`/`baseNameOf`/`mediaBlocksOfText`/`mediaBlocksOfMessage`/`projectMediaIntoHistory`；历史与实时两条路共用（见 API.md「助手回复里的媒体」） |
+| `src/host/chat/media-blocks.ts` | file | 助手正文的媒体引用投影（212 行，纯文本变换、不碰文件系统）：`MEDIA_BLOCK_MAX_PER_MESSAGE`/`MediaBlockView`/`mediaRefsInText`/`mediaTypeForName`/`baseNameOf`/`mediaBlocksOfText`/`mediaBlocksOfMessage`/`projectMediaIntoHistory`；历史与实时两条路共用（见 API.md「助手回复里的媒体」） |
 | `src/host/cloudflared.ts` | file | Cloudflare 隧道与二进制管理 |
 | `src/host/config-text.ts` | file | DSH1 配置文本编解码 |
 | `src/host/database.ts` | file | node:sqlite 持久层组合根（连接/PRAGMA/迁移装配/跨表族事务，公开方法委托到 db/*.ts） |

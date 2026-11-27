@@ -1585,3 +1585,29 @@ never negotiates permessage-deflate on the broadcast channel（钉住广播通�
 closes a connection that stays over the high-water mark twice（背压真的触发）；
 `tests/mobile-gateway-ws.spec.ts` › negotiates permessage-deflate when the client offers it /
 stays uncompressed when the client turns compression off（钉住 `/ws/mobile` 仍按 issue #29 开压缩）。
+
+### 授权根是解析过的路径：拿外部路径去比，两边都要先 realpath
+
+**症状**：`workspaces` 帧返回 `workspaces: []`、`sessions` 帧跟着空，客户端「工作区/会话凭空消失」。
+只在 macOS 与 Windows **CI runner** 上出现，开发机永远复现不到。
+
+**为什么**：授权根入库时（`roots.addRoot` → `path-policy.ts` 的 `realpath`）解析过符号链接，
+库里存的是**真实路径**；而内核给的 `workspace.path` / `session.cwd` 是它建工作区时用的那个
+字符串，**没解析过**。`matchRoot`（`chat-contracts.ts`）是纯字符串比较，于是：
+
+- macOS：`os.tmpdir()` 是 `/var/folders/…`，realpath 后是 `/private/var/folders/…`；
+- Windows：8.3 短名 `C:\Users\RUNNER~1\…`，realpath 后是 `C:\Users\runneradmin\…`。
+
+两条路径指向同一个目录，比较结果却是「不在根内」→ 整条列表被过滤空。
+
+**怎么改**：需要拿「别人的路径」去和授权根比的场合，两侧先归一 —— 用 `matchRootResolved`
+（`matchRoot` 的 realpath 版，解析失败退回原串）。已改三处：`visibleWorkspaces`（因此变成
+async）、`sessionRootId`、`listSessions`。**不要**在 `matchRoot` 里静默加 realpath：它是同步纯
+函数，被 `ws-file-transfer` 这类每帧热路径调用，改成 IO 会把事件循环拖下水。
+
+**怎么验**：`tests/workspace-realpath.spec.ts` —— 用目录符号链接（Windows 上建 junction，
+不需要管理员权限）造出「根按真实路径入库、候选走别名路径」的形状；纯字符串比较必然失配，
+归一后才匹配。本机长名一致，**只有这种构造才能复现**，靠跑同一个用例在本机绿是自欺。
+
+**排查口径**：CI 红、本机绿，先问「这条判据吃的是路径还是内容」；吃路径的，先怀疑符号链接、
+8.3 短名、大小写、盘符、`\\?\` 前缀这五样，别急着改 fixture。
