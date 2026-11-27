@@ -50,11 +50,18 @@ GitHub 是**从站**：本机到 github.com:443 长期被阻断（实测 `Empty 
 上面的脚本与拓扑都属于上游。本仓只有一条可用路径，且已经机检化：
 
 ```sh
-# 1) 改版本号（两处必须一致：package.json 与 src/shared/version.ts）
-# 2) 提交
+# 1) 改版本号（两处必须一致：package.json 与 src/shared/version.ts），
+#    并把 CHANGELOG-DEV.md 顶部的「未发布」改成这一版
+# 2) 建议先推 main、等那轮 CI 绿 —— 只是为了「绿了才打 tag」，不是发版步骤
 git push origin main
-git tag -a v2.17.5 -m "v2.17.5" && git push origin v2.17.5     # 3) 打 tag 即发版
+# 3) 绿了再打 tag：这一步才是发版，CI 自己跑门禁 → 打包 → 建 Release
+git tag -a v2.17.5 -m "v2.17.5" && git push origin v2.17.5
 ```
+
+**打包发生在推 tag 之后，由 CI 做，不在本机。** `git push origin main` 那一步不产生任何包、
+也不产生 Release —— 它只是让门禁先跑一遍给人看。想省这一步也行：tag push 自己会在 tag 上
+跑一遍完整门禁（`ci.yml` 监听所有 push），所以「只推 tag、后补 main」也能发出版来；
+差别只在万一门禁红，tag 已经躺在远端了。
 
 `ci.yml` 的 `core` job 在 tag push 时会做四件事：跑四道门 → `pnpm pack` → 上传
 artifact（留 14 天）→ **用同一份 tgz 建 GitHub Release**（附件 = 不带 v 与带 v 两个
@@ -65,7 +72,13 @@ tgz + `SHA256SUMS.txt`，正文取 `docs/project/.release-body-<ver>.md`，缺�
 
 - **tag 名必须等于 `package.json` 版本号**，否则那一步直接红（防止把 main 的版本号当发布号）。
 - **不重编第二次**：Release 附件就是 CI 那道闸打出来的包，重编会造出可能与 CI 产物不一致的字节。
-- **幂等**：同名 Release 已存在就只补附件（`--clobber`），重复推同一个 tag 不会造出第二个 Release。
+- **幂等**：同名 Release 已存在就只补附件（`--clobber`），重跑那次 run 不会造出第二个 Release。
+
+> **门禁红了但 tag 已经在远端**：那次 run 会在建 Release 之前失败，远端留下一个没有
+> Release 的 tag。修法是删掉重打，而不是硬推：
+> `git push origin :refs/tags/v2.17.5` → 修完再推同一个 tag。
+> 已存在的 tag 重复推会被远端拒绝 —— 幂等逻辑是给「修好后重跑 run」用的，不是给
+> 「反复推 tag」用的。
 
 > 想连 npm 一起发：本仓没有该包名的可信发布者，`publish.yml` 的 OIDC 换不到令牌；
 > 要么去上游仓发，要么把 `package.json` 的 `name` 改成自己的包名并配可信发布者。
