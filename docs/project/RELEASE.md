@@ -50,13 +50,31 @@ GitHub 是**从站**：本机到 github.com:443 长期被阻断（实测 `Empty 
 上面的脚本与拓扑都属于上游。本仓只有一条可用路径，且已经机检化：
 
 ```sh
-# 1) 改版本号（两处必须一致：package.json 与 src/shared/version.ts），
-#    并把 CHANGELOG-DEV.md 顶部的「未发布」改成这一版
-# 2) 建议先推 main、等那轮 CI 绿 —— 只是为了「绿了才打 tag」，不是发版步骤
-git push origin main
-# 3) 绿了再打 tag：这一步才是发版，CI 自己跑门禁 → 打包 → 建 Release
-git tag -a v2.17.5 -m "v2.17.5" && git push origin v2.17.5
+bash scripts/bump-release.sh            # patch +1（默认）：改 7 处版本号 → 门禁 → 提交 → tag → 推
+bash scripts/bump-release.sh minor      # 次版本 +1
+bash scripts/bump-release.sh major      # 主版本 +1
+bash scripts/bump-release.sh --dry-run  # 只算、只打印，不动任何文件
 ```
+
+一条命令做完，因为版本号在这仓散在 **7 处**，手改必漏（漏一处 `pnpm docs:check` 就红）：
+`package.json` 的 `version`、`src/shared/version.ts` 的 `PLUGIN_VERSION`、
+`docs/api/openapi.yaml` 与 `docs/api/asyncapi.yaml` 的 `info.version`、
+`README.md` 与 `README.en.md` 的当前版本行与页眉 badge、
+`docs/project/CHANGELOG-DEV.md` 的条目标题。前四处与两个 README 由
+`scripts/check-project-docs.ts` 严格核对；CHANGELOG 那条要求「有一条标题以该版本号开头」，
+所以脚本会把**最上面那条 `## 未发布 · …`** 抬成 `## vX.Y.Z · …`（其余「未发布」留着，
+那是下一版的内容）。**动手之前先在 CHANGELOG 顶部写一条「未发布」**，没有的话脚本直接拒绝。
+
+它等价于这三步手工动作：
+
+```sh
+# 1) 改版本号（7 处）+ 把 CHANGELOG 顶部的「未发布」抬成这一版 —— 脚本代劳
+# 2) 提交：chore(release): vX.Y.Z
+# 3) 打 tag 并推：git tag -a vX.Y.Z -m vX.Y.Z && git push origin main && git push origin vX.Y.Z
+```
+
+三道拒绝：工作区有别的 tracked 改动、该 tag 已存在、当前不在 `main`
+（`ALLOW_DIRTY=1` / `BRANCH=<名字>` 可覆盖，`--dry-run` 只看不算）。
 
 **打包发生在推 tag 之后，由 CI 做，不在本机。** `git push origin main` 那一步不产生任何包、
 也不产生 Release —— 它只是让门禁先跑一遍给人看。想省这一步也行：tag push 自己会在 tag 上
