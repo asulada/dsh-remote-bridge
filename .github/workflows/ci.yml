@@ -3,6 +3,9 @@ name: CI
 on:
   push:
   pull_request:
+  # 手动跑一次：Actions 被关掉过、或改了 workflow 但还没新提交时，
+  # 只能在 UI 上点「Run workflow」；没有这一行就没有那个按钮（2026-11-27 踩过）。
+  workflow_dispatch:
 
 # 连推多次时只保留最后一轮：没有这一块时，同一个分支连推三次就是三份 14 个 job 的
 # 队列并行跑完，前两轮的结果没人看。`cancel-in-progress` 只杀被取代的那一轮，
