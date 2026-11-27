@@ -11,10 +11,16 @@ name: 从 Gitee 同步镜像
 # scripts/ci/ 下的脚本，所以 mirror job 的首次同步逻辑内嵌于此；push --mirror
 # 完成后，Gitee 版（调用 scripts/ci/mirror-push.sh 的版本）即成为权威，本内嵌段
 # 只是它的等价副本。GITHUB_TOKEN 发起的 push 不会递归触发 workflow（GitHub 官方行为）。
+# ⚠️ 本文件里的 Gitee / AtomGit 地址是**上游仓**（westanke/…）的，不是本仓的远端。
+# 本仓（fork）只有 `origin = github.com/asulada/host-remote-bridge`，既没连 Gitee，
+# 也没配 `secrets.MIRROR_PAT`。
+#
+# 定时的 `--mirror` 同步在 fork 上是**破坏性**的：`git push --mirror` 的语义是「让目标
+# 与源完全一致」，上游没有的分支与标签会被删掉，包括本地自己的 main。所以这里**取消
+# 定时触发**，只保留手工 `workflow_dispatch`（真要和上游对齐时再显式点一次，点之前
+# 先确认自己分支已经推干净）。
 on:
-  schedule:
-    - cron: '23 */3 * * *'   # 每 3 小时一次（UTC，避开整点；与姊妹仓错开几分钟）
-  workflow_dispatch:          # 重建仓库或临时需要时手工触发
+  workflow_dispatch:          # 仅手工触发；定时同步已在本仓停用（见上）
 
 permissions:
   contents: write

@@ -20,10 +20,15 @@ name: Publish
 # （用的是 secret MIRROR_PAT，PAT 推送会触发工作流，GITHUB_TOKEN 推送不会），
 # 因此 GitHub 侧自动发布有 **0–3 小时延迟**。
 
+# ⚠️ 本仓（fork: asulada/host-remote-bridge）**不是** npm 包 `host-remote-bridge` 的
+# 发布者：可信发布者记录配在上游仓 `westanke/host-remote-bridge` 上，OIDC 换不到令牌。
+# 因此这里**取消 tag 触发**（原来 push v* 就发 npm），只保留手工 `workflow_dispatch`：
+# 打 tag 只表示「这个提交可以发布」，不再顺带把 job 刷红。
+#
+# 下面保留的发布者配置与包名属于上游，改回 tag 触发前先确认：包名、npm 上的可信发布者
+# 都指向本仓，否则会在 `npm publish` 处失败（或被「版本已存在」那步跳过而假装成功）。
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 # id-token: write 是 trusted publishing 的关键权限：没有它，npm 拿不到
 # ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN，会跳过 OIDC 然后报 ENEEDAUTH。
@@ -56,6 +61,13 @@ jobs:
       - name: verify tag matches package version
         shell: bash
         run: |
+          # 手工触发时**必须选 tag 作为 ref**（GitHub 的 Run workflow 下拉里能选 tag）。
+          # 选成分支时 GITHUB_REF_NAME 是分支名，下面这句会红——这是刻意留的护栏，
+          # 免得「对着 main 点了一下」就把 main 的版本号当成要发布的版本。
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then
+            echo "::error::dispatch this workflow on a tag ref (got $GITHUB_REF)"
+            exit 1
+          fi
           tag_ver="${GITHUB_REF_NAME#v}"
           pkg_ver="$(node -p "require('./package.json').version")"
           if [ "$tag_ver" != "$pkg_ver" ]; then

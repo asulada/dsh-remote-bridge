@@ -30,6 +30,15 @@ gitee    -> Gitee    gitee.com/westanke/dsh-remote-bridge.git        （主站�
 atomgit  -> AtomGit  atomgit.com/westanke163/dsh-remote-bridge.git      （备站）
 origin   -> GitHub   github.com/westanke/dsh-remote-bridge.git       （从站，自动同步）
 ```
+> **这条拓扑属于上游仓 `westanke/host-remote-bridge`，不是每个克隆都成立。**
+> 本仓（`asulada/host-remote-bridge`）只有 `origin`：既没连 Gitee/AtomGit，也没有
+> `secrets.MIRROR_PAT`，`release.sh` / `push-all.sh` / `setup-remotes.sh` 在这里跑不通，
+> npm 包 `host-remote-bridge` 的发布者也是上游。因此本仓对三处 workflow 做了收紧
+> （2026-11-27）：`mirror-sync.yml` 取消定时（`push --mirror` 会让目标与源完全一致，
+> 定时跑等于随时删掉本仓自己的分支）、`publish.yml` 取消 tag 触发只留手工、
+> `ci.yml` 在 ubuntu + node 24 那一格上传 tgz artifact（保留 14 天）。
+> 判断「这个克隆连了什么」只看 `git remote -v` 与仓库设置，不看本文件里的域名。
+
 
 GitHub 是**从站**：本机到 github.com:443 长期被阻断（实测 `Empty reply from server` /
 `TLS handshake failed`，间歇性），故不手工推；由 `.github/workflows/mirror-sync.yml`
