@@ -71,6 +71,131 @@ fixture 期望一条。根因不在 fixture：授权根入库时（`roots.addRoo
 同步 `statSync` 撞上慢盘或掉线的网络映射盘时卡住整个事件循环的风险也一并消失。
 块里因此**没有 `size`** —— 要大小走 `/roots/resolve`（那条路由本来就回 `size`，且过了授权）。
 
+## v2.17.5 · 帧上限失败体验、后台任务三帧、待处理提问 `questions` 帧与内核超时归一（2026-11-27）
+
+**同版四项**：`/ws/mobile` 入站帧超限改为「先 error 帧、再 close 1009」；后台任务新增
+`job-list` / `job-output` / `job-kill` 三帧与 `chat.job.updated` / `chat.job.finished` 推送；
+待处理提问列表新增只读 `questions` 帧（3.0.0 弃用 REST 的替代）；内核 `rpc/timeout`
+归一为可重试 `TIMEOUT/504`，`sessions.list` / `sessions.history` 单次 RPC 上限放宽到 20 s。
+
+**验证**：`pnpm check`（typecheck → test → docs:check → build）全绿；`npm test` 98 文件
+**1114** 用例全绿；两端协议词表 client 91 / server 94 / 去重 129。
+
+**发布**：npm + Gitee/AtomGit tag/Release 一并发布。
+
+### 内核 RPC 超时归一为可重试 TIMEOUT、会话列表/历史上限放宽（2026-11-27）
+
+**起因**：真机反复出现「加载历史失败：The host did not answer sessions.list within 10000ms.」。
+根因是 `rpc.ts` 的统一 10 s 上限在慢盘/长回合/上百会话时被打穿，而 `unwrapDsh()`
+把 `rpc/timeout` 映射成 400 `DSH_RPC_TIMEOUT` —— 不在错误码表里，客户端拿不到
+`retryable`，只能刷红条，不会自动重试。
+
+**改动**：
+
+- `src/host/chat-contracts.ts`：`unwrapDsh()` 先把 `rpc/timeout` 归一成 `504 TIMEOUT`
+  （upstream 组，`retryable: true`），其余未知码维持原映射。
+- `src/host/dsh-0.2-bridge.ts`：`sessions.list` / `sessions.history` 的单次 RPC 上限
+  从 10 s 放宽到 20 s（会话多、事件多的真实负载）。
+
+**兼容性**：错误码从 `DSH_RPC_TIMEOUT`（400，不可重试）变为 `TIMEOUT`（504，可重试）；
+客户端 `RequestException.retryable` 会为 true。没有新增帧/能力位。
+
+### 帧超限失败体验：先 `FRAME_TOO_LARGE` error 帧，再 close `1009`（2026-11-27）
+
+**起因**：`/ws/mobile` 的入站单帧超过 `hello.maxFrameBytes` 时，`ws` 直接 `close(1009)`，
+客户端只看到一个裸 1009——分不清「帧太大」和别的 1009，也不知道生效上限；发图/大附件只能
+盲试，失败后只能整条重连。
+
+**行为（加性，旧客户端零破坏）**：
+
+- `/ws/mobile`（主端口 + 隧道端口）：入站超限时先发
+  `{kind:'error', data:{code:'FRAME_TOO_LARGE', message, retryable:true, details:{limitBytes}}}`
+  再 `close(1009, 'FRAME_TOO_LARGE limitBytes=…')`。error 帧在 `close` 被调用的当下注入
+  （`ws` 的 `'error'` 事件到达时已 `CLOSING`，send 会被丢弃；因此包住 `webSocket.close`）。
+- 只拦「入站超限」这一条路径（用 `ws` 的 `_closeFrameReceived` 区分对端主动 close）；
+  对端自己 `close(1009)` 不被改写、不补帧。
+- `/api/v1/events`（广播 WS，帧形 `{id,type,time,data}`，没有 `kind:'error'`）：只带同样的
+  close reason，不注入 error 帧。
+- `FRAME_TOO_LARGE` 登记进 `src/host/error-codes.ts` 的第六组 `transport`（`retryable: true`）；
+  API.md 分组表、AsyncAPI 描述与 `hello.maxFrameBytes` 说明同步。
+- 默认上限仍是 1 MiB（`maxPayloadBytes` 可配，未调大）：语音 `audioLimit` 由它推导，
+  调大同时会放大每连接内存与 DoS 面。
+
+**测试**：`tests/websocket-liveness.spec.ts` + `mobile-gateway-ws` + `mobile-frame-contract` +
+`websocket-security` 共 4 文件 153 例绿；临时集成脚本实测压缩/未压缩/隧道三条入口均为
+「hello → error 帧 → 1009 reason」，对端主动 close 不被改写；`tsc`、`docs:check` 绿。
+
+### 后台任务新增 `job-list` / `job-output` / `job-kill` 帧与状态推送（2026-11-27）
+
+**起因**：客户端把「后台任务卡/列表」记为缺能力——桥只有三条 REST jobs 端点，
+`/ws/mobile` 没有任何帧，客户端拿不到任务清单，也收不到「跑完了/失败了」的提醒。
+后台任务是 `COMPATIBILITY.md` 里登记过的「没有帧等价物」例外；这次补上帧，
+并把状态变化接进已有 `event` 推送。
+
+**协议（加性，旧客户端零破坏）**：
+
+- 客户端帧 `job-list`：`{type:'job-list', sessionId, requestId?}`；回
+  `{kind:'job-list', data:{sessionId, jobs}}`，`jobs` 与 REST `GET …/jobs` 同形。
+- 客户端帧 `job-output`：`{type:'job-output', sessionId, jobId, cursor?, requestId?}`；
+  `cursor` 是非负安全整数（省略=从最旧保留字节开始），回
+  `{kind:'job-output', data:{jobId, output, nextCursor, truncated}}`——`output`/`nextCursor`/
+  `truncated` 分别对应 REST 的 `text`/`next`/`lossy`。
+- 客户端帧 `job-kill`：`{type:'job-kill', sessionId, jobId, requestId?}`；回
+  `{kind:'job-kill', data:{jobId, killed}}`——`killed:true` 只表示终止请求已受理
+  （REST `requested`），`false` 表示已终态（REST `already-finished`）。
+- 授权：`job-list`/`job-output` 要 `chat.read`，`job-kill` 要 `chat.write`；三者都先过
+  `chat.isSessionAuthorized`（root grant + 会话可见），不可见回 `SESSION_NOT_FOUND`。
+  缺参 `MISSING_PARAMS`；`cursor` 非法 `BAD_REQUEST`；任务不存在 `NOT_FOUND`；
+  上游 `JOB_*` 失败 `UPSTREAM_UNAVAILABLE`；未注入 `jobController` 时三条都回 `NOT_FOUND`。
+- 状态推送**不新增 kind**：`subscribe` 某会话后，桥用 `JobWatchers` 消费内核
+  `jobController.list` 的后续帧，变化发 `event` 帧 `chat.job.updated` /
+  `chat.job.finished`，载荷 `{sessionId, jobId, status, progress?, finishedAt?}`；
+  只推给已订阅且授权通过的连接，无回放（重连后先 `job-list` 拉基线）。
+- 词表两侧各 +3（客户端 / 服务端），AsyncAPI `MobileClientFrame.type` 与
+  `MobileServerFrame.kind` 同步；`tsc` 联合类型 + `mobile-frame-contract.spec.ts` 双向对账。
+
+**实现**：
+
+- 新增 `src/host/ws-jobs.ts`：`JobsHandler`（三帧，复用 `JobAdapter` 的 list/follow/kill）
+  与 `JobWatchers`（按连接引用计数，按 `sessionId` 起内核 list watcher；首帧建基线，
+  后续按 `status`/`progress`/`finishedAt` 变化 emit，终态发 `finished`）。
+- `src/host/job-adapter.ts` 新增 `watch()`（只给 WS 推送用）；REST 的 list/follow/kill
+  行为不变，仍只读首帧/读到终态。
+- `src/host/ws-handler.ts`：`attachHostServices({settings, files, jobs?})` 接收 adapter；
+  acceptSocket 建 `JobsHandler`，`routeFrame` 在 schedule 后分派；`subscribe` 调
+  `JobWatchers.retain`，`unsubscribe`/断连调 `releaseAll`。
+- `src/index.ts`：把 `JobAdapter` 提成变量，同时传给 `ApiRouter` 与
+  `remote.attachMobileHostServices({settings, files, jobs})`；未改 `server.ts`。
+
+**测试**：新增 `tests/mobile-jobs-frame.spec.ts` 8 例（正常清单、输出游标、kill 成功、
+`already-finished`、kill `job/not-found`、缺参 `MISSING_PARAMS`、`chat.write` 越权、订阅后收到
+`chat.job.updated`/`chat.job.finished` 推送）；`npx vitest run tests/mobile-jobs-frame.spec.ts
+tests/mobile-frame-contract.spec.ts tests/frame-fixtures.spec.ts` → 3 文件 36 用例全绿；
+`npx tsc --noEmit` 绿；`npm run docs:check` 四段绿。全量 `pnpm test` 留给合并方。
+
+### 待处理提问清单新增 `questions` 帧（2026-11-27）
+
+**起因**：dsh-Chat 断线重连后靠 REST `GET /chat/sessions/{id}/questions` 补齐内核 `continued`
+那半提问——WS 的待处理重放只覆盖桥前台接管的部分。那条 REST 在 3.0.0 的弃用表里，而
+`ROADMAP.md` 的 PROTO-001 要求「dsh-Chat 确认不再调用」才能删；补一条只读帧，客户端就能把
+这次补齐整个搬到 WS 上。
+
+**协议（加性，旧客户端零破坏）**：
+
+- 客户端帧 `questions`：`{type:'questions', sessionId, requestId?}`；缺 `sessionId` 回
+  `error MISSING_PARAMS`。
+- 服务端 `kind:'questions'`：`{sessionId, items}`，`items` 与 REST 同形（`UserQuestionView[]`，
+  含本桥前台接管 + 内核 `continued`）；应答帧照常回显 `data.requestId`。**不新增主动推送**：
+  挂起项变化仍走 `event` 帧（`chat.userQuestions/*`）。
+- 词表两侧各 +1（客户端 / 服务端），asyncapi `MobileClientFrame.type` 与
+  `MobileServerFrame.kind` 同步；`tsc` 联合类型 + `mobile-frame-contract.spec.ts` 双向对账。
+
+**实现**：`ws-hitl.ts` 新增 `handleQuestions()`，复用适配层 `chat.listUserQuestions()` —— 与 REST
+同一个方法，只换传输面，不复制语义，也不改任何挂起状态。
+
+**测试**：`tests/mobile-gateway-ws.spec.ts` +2（清单应答含 requestId 回显；缺参结构化错误）；
+`vitest run` 96 文件 **1104** 用例全绿；`tsc --noEmit`、`docs:check` 绿（`build` 见发布记录）。
+
 ## v2.17.4 · IPv6 支持、设备名同步与 App 下载二维码收口（2026-11-25，issue #IKXRAD）
 
 **同版另外两项**：`ac9bfc9` 让候选地址、配置文本与监听过滤支持 IPv6（具体 IPv6 literal / `::`，URL 自动加方括号）；`fb2f877` 在 token 重连时读取 `X-DSH-Device-Name`，调用 `database.renameDevice()` 同步设备展示名，已配对设备重连一次即可改名，无需重新配对。

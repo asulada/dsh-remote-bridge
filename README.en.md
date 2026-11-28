@@ -17,7 +17,7 @@
 
 <p align="center">
   <a href="./README.md">中文</a> ·
-  <img alt="Version" src="https://img.shields.io/badge/version-v2.17.4-087f8c">
+  <img alt="Version" src="https://img.shields.io/badge/version-v2.17.5-087f8c">
   <img alt="DSH plugin" src="https://img.shields.io/badge/DeepSeek_Harness-plugin-1f2328">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-586069">
   <img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-2da44e">
@@ -335,7 +335,7 @@ Authorization: Bearer DEVICE_TOKEN
 | `POST /chat/runs/{id}/cancel` | Cancel a running session |
 | `GET/POST/PATCH/DELETE /settings/...` | Providers, credential status, model discovery, and custom providers |
 | `WS /ws/mobile` | **Primary surface**: bidirectional frames (messages, history, approvals, questions, files, plugins, schedules, speech) |
-| `WS /events` | Legacy: one-way event stream, kept only as a reconnect fallback |
+| `WS /events` | Legacy: **broadcast WS** (desktop/browser), kept only as a reconnect fallback |
 
 See the [OpenAPI 3.1 contract](./docs/api/openapi.yaml), [AsyncAPI contract](./docs/api/asyncapi.yaml), and included [Kotlin SDK](./kotlin-sdk/README.md) for exact schemas.
 
@@ -426,11 +426,13 @@ pnpm check
 pnpm pack
 ```
 
-`pnpm check` covers type-checking, documentation consistency, and tests. It currently passes **93 test files / 1021 cases**, plus **9 browser-layer cases** (Playwright measuring real computed styles, including the 375px narrow-viewport contract).
+`pnpm check` covers type-checking, documentation consistency, and tests. Its current test set is **97 test files / 1112 cases**, plus **9 browser-layer cases** (Playwright measuring real computed styles, including the 375px narrow-viewport contract). The WS specs touched by the current frame-limit change pass; `pnpm check` before merge is the full gate.
 
 `npm pack` produces roughly a **0.64 MB** archive (v2.6.1 measured 669,434 bytes, SHA-256 `9bf0189b…2cd35`): 2.2.0 dropped the standalone page and its editor dependencies and turned source maps off, down from 1.72 MB; it has since grown slightly with projection passthrough, the permission BFF, and the five-dimension hardening.
 
 v2.5.0 was verified on DSH **0.2.1-rc.2** on real hardware: all 14/14 host services injected, the three jobs endpoints exercised, and the permission catalog returned the kernel's real three presets. **The current development baseline** is upstream `dsh-v0.2.2-rc.4` (commit `3f321d32bfe382212a8ed8785c1d47a5a300aa23`); see `engines.dsh` above for the supported range. CI covers Windows, Ubuntu, and macOS on **two kernel versions each** (`0.2.2-rc.1` and `0.2.2-rc.4`) — the lower bound and the near-upper bound of the range declared in `engines.dsh` (issue #26, phase 0.1).
+
+**Current HEAD (v2.17.5) test set**: 98 test files / **1114 cases** (`npx vitest list`). Unreleased changes include the read-only `questions` frame, frame-limit failure handling (`/ws/mobile` sends a `FRAME_TOO_LARGE` error frame before closing with `1009` and a `limitBytes` close reason), and the background-job fetch frames; the default 1 MiB frame limit is unchanged. Run `pnpm check` before merging for the full gate.
 
 **v2.14.0 verification status**: 93 test files / **1021 cases** green; `typecheck`, `docs:check`,
 and the build all pass. This release catches dsh-Chat up on queue management and goal activation
@@ -505,9 +507,9 @@ was not exercised once over IM on real hardware.
 **v2.16.0 verification status**: 95 test files / **1073 cases** green; `typecheck`, `docs:check`, and
 the build pass. This release turns the config text into an **ordered candidate list** (`MOB-016`,
 issue IKX5K7): one `DSH1:` now carries the tunnel, the LAN address and the virtual-network address,
-with the tunnel first (`dsh-Chat`'s `decodeDsh1` only reads `endpoints[0]`, and the tunnel works both
-at home and away); preferring LAN is the client's job — probing and ranking (`dsh-companion` already
-does it, `dsh-Chat` is tracked in IKX5KQ). New `composeCandidates()`; `POST /manage/config/text`
+with the tunnel first (the tunnel works both at home and away, and older clients that only read
+`endpoints[0]` still work); preferring LAN is the client's job — probing and ranking (`dsh-companion`
+already does it, and both `dsh-Chat` clients now do too). New `composeCandidates()`; `POST /manage/config/text`
 accepts `includeTunnel: true` (**off by default** — generating text is a read-only action and must
 not silently open a public ingress). The `open_tunnel_config` tool now tells the model to put the
 `DSH1:` line verbatim in the first line of its reply (IKX5N7). **On-device**: in an existing dsh-Chat
@@ -584,7 +586,7 @@ inside the zero-change set, and 4 slots retained with 0 removed.
 
 ## Project
 
-- Version: `v2.17.4`
+- Version: `v2.17.5`
 - **v2.9.0 makes teammates (sub-sessions) readable**: the phone's team panel could list members and
   sub-sessions but could not open a single one, because `sessions.list` filters out every row with
   `origin === 'subagent'` (the bridge's own `dsh-0.2-bridge.ts:2327`, with a comment explaining that

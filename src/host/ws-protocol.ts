@@ -10,6 +10,7 @@
  * 服务端主帽头：{ id, kind, time, data } —— 方便与现有事件流复用基础设施。
  */
 
+import type { JobView } from './job-adapter.ts'
 import { parseWireJson } from './wire-json.ts'
 
 // ───────────────────────── 路径与子协议 ─────────────────────────
@@ -174,6 +175,9 @@ export type ClientFrameType =
   | 'agent-presets'
   | 'question-answer'
   | 'question-cancel'
+  // 只读：拉会话待处理提问（帧版 `GET /chat/sessions/{id}/questions`，2026-11-27）。
+  // 断线重连时客户端靠它补齐内核 `continued` 里那半（event 重放只覆盖本桥前台接管的部分）。
+  | 'questions'
   | 'approval-response'
   | 'session-create'
   | 'session-cancel'
@@ -221,6 +225,11 @@ export type ClientFrameType =
   | 'schedule-view'
   | 'schedule-run'
   | 'schedule-delete-inactive'
+  // 后台任务拉取帧（2026-11-27）：与 REST 三条 jobs 端点同义。
+  // 状态推送不新增 kind，走 `event` 帧的 chat.job.updated / chat.job.finished。
+  | 'job-list'
+  | 'job-output'
+  | 'job-kill'
 
 /** 服务端 → 客户端的 `kind` 取值。 */
 export type ServerFrameKind =
@@ -277,6 +286,10 @@ export type ServerFrameKind =
   | 'schedule-view'
   | 'schedule-run'
   | 'schedule-delete-inactive'
+  // 后台任务拉取帧的应答，与请求同名（同一信封，客户端按 kind 找回调）。
+  | 'job-list'
+  | 'job-output'
+  | 'job-kill'
   // issue #26 阶段 7：插件帧的应答也同名 —— 请求与应答共用词表，客户端按 kind 找回调。
   | 'plugin-catalog'
   | 'plugin-detail'
@@ -314,6 +327,8 @@ export type ServerFrameKind =
   | 'goals-get'
   | 'goal-updated'
   | 'question-response'
+  // 待处理提问清单应答：`{sessionId, items}`，与 REST 同形（2026-11-27）。
+  | 'questions'
   | 'approval-response'
   | 'approval-resolved'
   // 通用内核调用面（issue #26 阶段 5）：只在 dshrb-v1 子协议下发出。
@@ -368,7 +383,8 @@ export interface HelloData {
   /**
    * 本连接的入站单帧上限（字节；issue #IKXGYX）。服务端按实际生效值宣告
    * （`maxPayloadBytes` 可配，issue #10），客户端据此设置自己发送帧的上限，
-   * 不要按编译期默认值硬编码。超限帧被底层以 close `1009` 拒绝。
+   * 不要按编译期默认值硬编码。超限帧会先由 server.ts 补一帧 `FRAME_TOO_LARGE`
+   * error，再以 close `1009` 关闭（reason 带 limitBytes）。
    */
   maxFrameBytes?: number
 }
@@ -437,6 +453,18 @@ export interface QuestionCancelFrame extends ClientFrame {
   rpcId?: string
   /** 本桥字段：内核 callId。 */
   callId?: string
+}
+
+/**
+ * 待处理提问清单客户端帧（2026-11-27）。
+ *
+ * 为什么要有帧版：REST `GET /chat/sessions/{id}/questions` 在 3.0.0 的弃用表里，
+ * 而 WS 重放只覆盖本桥前台接管的提问；客户端重连后要拿到内核 `continued` 那半
+ * 只能走这条 REST。给一条只读帧，客户端就能把「刷新待处理提问」整个搬到 WS 上。
+ */
+export interface QuestionsFrame extends ClientFrame {
+  type: 'questions'
+  sessionId?: string
 }
 
 /** 会话创建客户端帧。 */
@@ -530,6 +558,51 @@ export interface SessionStatsFrame extends ClientFrame {
 export interface TasksFrame extends ClientFrame {
   type: 'tasks'
   sessionId?: string
+}
+
+/**
+ * 后台任务拉取帧（2026-11-27）。
+ *
+ * 与 REST 三条 jobs 端点同义；应答 kind 与请求同名，字段见 API.md 的帧表。
+ * 状态变化不属于这三种帧，走 `event` 帧的 `chat.job.updated` / `chat.job.finished`。
+ */
+export interface JobListFrame extends ClientFrame {
+  type: 'job-list'
+  sessionId: string
+}
+
+export interface JobOutputFrame extends ClientFrame {
+  type: 'job-output'
+  sessionId: string
+  jobId: string
+  /** 绝对字节偏移；省略时由内核从最旧的保留字节开始（与 REST 的 `from` 省略一致）。 */
+  cursor?: number
+}
+
+export interface JobKillFrame extends ClientFrame {
+  type: 'job-kill'
+  sessionId: string
+  jobId: string
+}
+
+/** `job-list` 应答：复用 REST `GET …/jobs` 的 JobView 结构。 */
+export interface JobListData {
+  sessionId: string
+  jobs: JobView[]
+}
+
+/** `job-output` 应答：`nextCursor` 当 from 续读；`truncated` 对应 REST 的 lossy。 */
+export interface JobOutputData {
+  jobId: string
+  output: string
+  nextCursor: number
+  truncated: boolean
+}
+
+/** `job-kill` 应答：`requested` 才算真的受理（already-finished → false）。 */
+export interface JobKillData {
+  jobId: string
+  killed: boolean
 }
 
 /** 目标编辑客户端帧。 */

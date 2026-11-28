@@ -17,7 +17,7 @@
 
 <p align="center">
   <a href="./README.en.md">English</a> ·
-  <img alt="Version" src="https://img.shields.io/badge/version-v2.17.4-087f8c">
+  <img alt="Version" src="https://img.shields.io/badge/version-v2.17.5-087f8c">
   <img alt="DSH plugin" src="https://img.shields.io/badge/DeepSeek_Harness-plugin-1f2328">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-586069">
   <img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-2da44e">
@@ -362,7 +362,7 @@ Authorization: Bearer DEVICE_TOKEN
 | `POST /chat/runs/{id}/cancel` | 取消正在运行的会话 |
 | `GET/POST/PATCH/DELETE /settings/...` | 管理供应商、凭据状态、模型发现和自定义供应商 |
 | `WS /ws/mobile` | **第一协议面**：双向帧（消息、历史、审批、提问、文件、插件、排程、语音） |
-| `WS /events` | 老协议：单向事件流，仅作断线兜底 |
+| `WS /events` | 老协议：**广播 WS**（桌面/浏览器用），仅作断线兜底 |
 
 完整字段、响应和错误模型见 [OpenAPI 3.1](./docs/api/openapi.yaml)，实时事件格式见 [AsyncAPI](./docs/api/asyncapi.yaml)。仓库同时提供 [Kotlin SDK](./kotlin-sdk/README.md)。
 
@@ -476,7 +476,7 @@ pnpm check
 pnpm pack
 ```
 
-`pnpm check` 覆盖类型检查、文档一致性与测试；当前 **95 个测试文件 / 1060 个用例**，外加 **9 个浏览器层用例**（Playwright 实测量出的计算样式，含 375px 窄屏契约），全部通过。
+`pnpm check` 覆盖类型检查、文档一致性与测试；当前测试集为 **97 个测试文件 / 1112 个用例**，外加 **9 个浏览器层用例**（Playwright 实测量出的计算样式，含 375px 窄屏契约）。本轮帧上限相关 WS 用例已通过；完整门禁以合并前 `pnpm check` 为准。
 
 `npm pack` 的产物约 **0.64 MB**（v2.6.1 实测 669,434 字节，SHA-256 `9bf0189b…2cd35`）：2.2.0 删除独立页及其编辑器依赖、并关闭 source map 之后从 1.72 MB 降下来，之后随投影透传、权限 BFF 与五维加固小幅增长。
 
@@ -486,10 +486,12 @@ v2.5.0 在 DSH **0.2.1-rc.2** 上完成真机验证：14/14 宿主服务全部�
 CI 覆盖 Windows、Ubuntu 和 macOS **各两档内核**（`0.2.2-rc.1` 与 `0.2.2-rc.4`），
 即 `engines.dsh` 声明区间的下界与上界附近各测一次（issue #26 阶段 0.1）。
 
+**当前 HEAD（v2.17.5）的测试集**：98 个测试文件 / **1114 个用例**（`npx vitest list` 统计）。未发布改动包括待处理提问清单 `questions` 帧、帧超限失败体验（`/ws/mobile` 超限先回 `FRAME_TOO_LARGE` error 帧，再以 `1009` 关闭并在 close reason 带 `limitBytes`），以及后台任务拉取帧；默认单帧上限保持 1 MiB 不变。合并前的 `pnpm check` 是完整门禁。
+
 **v2.16.0 的验证状态**：95 个测试文件 / **1073 个用例**全绿、`typecheck`/`docs:check`/构建通过。
 这一版把配置码升级成**有序候选列表**（`MOB-016`，issue IKX5K7）：一个 `DSH1:` 同时带隧道、LAN
-与虚拟网地址，隧道排第一（`dsh-Chat` 的 `decodeDsh1` 只取 `endpoints[0]`，隧道在家在外都通），
-「局域网优先」交给客户端探活排序（`dsh-companion` 已实现，`dsh-Chat` 见 IKX5KQ）。新增
+与虚拟网地址，隧道排第一（隧道在家在外都通，老客户端只读 `endpoints[0]` 也能用），
+「局域网优先」交给客户端探活排序（`dsh-companion`、`dsh-Chat` Flutter/Harmony 均已实现）。新增
 `composeCandidates()`；`POST /manage/config/text` 支持 `includeTunnel: true`（**缺省关** —— 生成
 文本是只读动作，不许它偷偷拉起公网入口）；`open_tunnel_config` 的回执改成要求模型把 `DSH1:`
 那一行原样放到回复第一行（IKX5N7）。**真机**：dsh-Chat 已有会话里 `/tunnel` 直接回完整配置码；
@@ -596,7 +598,7 @@ DSH **0.2.1-rc.3** 隔离实例上**实跑验过**，不是静态推断：插件
 
 ## 项目信息
 
-- 当前版本：`v2.17.4`
+- 当前版本：`v2.17.5`
 - **v2.9.0 是团队成员（子会话）可读版**：手机端的团队面板此前只能看到成员与子会话的名字，点开读不到
   任何内容 —— 因为 `sessions.list` 会把 `origin === 'subagent'` 的行整批滤掉（桥自己的
   `dsh-0.2-bridge.ts:2327`，注释写明「暴露出来只会得到点开就崩的行」），子会话 id 打 `/messages`
