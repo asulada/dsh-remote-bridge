@@ -355,10 +355,11 @@ for (const { label, file } of changelogs) {
 }
 if (changelogBodies.length === 0) failures.push('没有任何 CHANGELOG（CHANGELOG.md 或 docs/project/CHANGELOG-DEV.md）可供核对')
 for (const { label, body } of changelogBodies) {
-  // 条目形如 `## 2.4.2 · …` 或 `## v2.4.2 · …`。下限断言同样必要：
+  // 条目形如 `## 2.4.2 · …`、`## v2.4.2 · …`，或本仓的后缀口径 `## v2.17.6-asulada.1 · …`。
+  // 下限断言同样必要：
   // 标题层级若从 `##` 改成 `###`，正则会一条不中而被当成「没有该版本条目」——
   // 那是**假阴性**（绿着但条目其实在），所以先报解析失败再报缺失。
-  const versionEntries = [...body.matchAll(/^#{1,6}\s*v?\d+\.\d+\.\d+/gm)]
+  const versionEntries = [...body.matchAll(/^#{1,6}\s*v?\d+\.\d+\.\d+(?:-[\w.]+)?/gm)]
   if (versionEntries.length === 0) {
     failures.push(`${label} 没有解析出任何版本条目标题（形如 ## 2.4.2 · …），格式可能变了`)
     continue

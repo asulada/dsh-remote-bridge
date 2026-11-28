@@ -6,10 +6,10 @@ lib/
 .local-backup/
 coverage/
 # Everything under artifacts/ is a local build product (pnpm pack output, release notes).
-# Only the checksum file is tracked, so it needs an explicit exemption; the tarball deliberately
-# does not — a 2.6 MB binary in git is not a source artefact, and CI re-packs on every release.
+# Nothing under it is tracked any more: the checksum list used to be exempted, but this fork
+# lets CI compute it on the tag run (see RELEASE.md), and a committed copy only ever held the
+# previous release's hashes — it read like "the hashes of this version" while being wrong.
 artifacts/*
-!artifacts/SHA256SUMS.txt
 playwright-report/
 test-results/
 kotlin-sdk/.gradle/

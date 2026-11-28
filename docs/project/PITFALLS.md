@@ -947,6 +947,11 @@ node /usr/local/nodejs/bin/dsh plugin --profile web add <workspace>/pack/<tgz>
 自检：不一致就 `exit 1`（tag 未推送，`git tag -d` 后重跑即可）。
 姊妹仓 `dsh-companion` 的 `release.sh` 在阶段 B 打 tag 后做同一道闸。
 
+**本仓（fork，2026-11-28 起）不适用**：本仓没有本机打包这一步，`pnpm pack` 与哈希计算都在
+CI 的 tag 那趟做（见 `RELEASE.md` 的「本仓（fork）的发版路径」），所以 `artifacts/SHA256SUMS.txt`
+被**删掉并从 git 里除名**（`.gitignore` 的豁免一并去掉）—— 留着的那份记的是上游 v2.17.5 的
+哈希，对本仓的产物永远是错的。别为了「照抄上游纪律」把它加回来。
+
 ### 发版脚本不推 tag（默认行为与注释相反）
 
 **症状**：一键发版 `bash scripts/release.sh` 跑完，**两站 Release 建好了、npm 也发上去了**，

@@ -1,4 +1,15 @@
-## 未发布 · 订阅后补推轮状态快照（手机端「思考中」永挂）
+## 未发布 · fork 首发（2026-11-28）：并入上游 v2.17.5，加媒体块投影与授权根 realpath
+
+**这一版是什么**：本仓（`asulada/host-remote-bridge`）的第一个 release —— 内容 = 上游
+`westanke` 的 v2.17.5（后台任务三帧、`questions` 帧、帧上限失败体验、内核超时归一，
+详情见后面的 `## v2.17.5`）+ 本仓自己的三项（媒体块投影 `media-blocks-v1`、授权根
+realpath 归一、订阅后补推轮状态），三段细节就是下面的三个小节。
+
+**版本号口径**：从这一版起走「后缀区分」——核心号跟上游对齐，`-asulada.N` 是本仓在该
+核心号上的第 N 次发布（`2.17.6-asulada.1`）。理由与算法见 `docs/decisions/2026-11.md`
+的「版本号后缀区分」，发版步骤见 `docs/project/RELEASE.md`。
+
+### 订阅后补推轮状态快照（手机端「思考中」永挂）
 
 **起因**：2026-11-28 用户报障 —— 手机发完消息，正文都出来了，输入框上方那条带秒表的
 「思考中」胶囊一直挂着；退出会话再进来或重开 App 才正常。
@@ -19,7 +30,7 @@
 订阅 `sess-1` 后恰好收到一条 `{sessionId:'sess-1', running:false}`；订阅不可见的
 `sess-not-mine` 则一条都不推。坑位：`docs/project/PITFALLS.md` §订阅不补推轮状态。
 
-## 未发布 · 授权根匹配改走 realpath 归一（CI 上 `workspaces` 帧空、`sessions` 会跟着空）
+### 授权根匹配改走 realpath 归一（CI 上 `workspaces` 帧空、`sessions` 会跟着空）
 
 **起因**：2026-11-27 第一次真跑 CI（Actions 之前被关着），macOS 与 Windows 用例红在
 `tests/frame-fixtures.spec.ts` 的「帧形状漂移：workspaces」—— 实测帧是 `workspaces: []`，
@@ -58,7 +69,7 @@ fixture 期望一条。根因不在 fixture：授权根入库时（`roots.addRoo
   是 CRLF（`core.autocrlf=true`），而抽取类型块的正则用 `\n\n` 收尾。读源码做正则抽取的用例
   现在先把 `\r\n` 归一成 `\n`。
 
-## 未发布 · 助手回复里的媒体投影成结构化块（`media-blocks-v1`，2026-11-27）
+### 助手回复里的媒体投影成结构化块（`media-blocks-v1`，2026-11-27）
 
 **起因**：模型在回复里写出图片/视频路径（`![](D:/…/frame1s.png)`、正文裸路径）后，手机端
 **看不到东西**：`host-Chat` 的 markdown 渲染器没有图片能力，路径点击又只认 `/` 开头的绝对路径

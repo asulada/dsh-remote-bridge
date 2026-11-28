@@ -50,11 +50,22 @@ GitHub 是**从站**：本机到 github.com:443 长期被阻断（实测 `Empty 
 上面的脚本与拓扑都属于上游。本仓只有一条可用路径，且已经机检化：
 
 ```sh
-bash scripts/bump-release.sh            # patch +1（默认）：改 7 处版本号 → 门禁 → 提交 → tag → **只推 tag**
+bash scripts/bump-release.sh            # patch：核心号 +1、N 归 1（默认）→ 改 7 处版本号 → 门禁 → 提交 → tag → **只推 tag**
+bash scripts/bump-release.sh rev        # 同一核心号再发一次：`-asulada.N` 的 N +1
 bash scripts/bump-release.sh minor      # 次版本 +1
 bash scripts/bump-release.sh major      # 主版本 +1
 bash scripts/bump-release.sh --dry-run  # 只算、只打印，不动任何文件
+PUSH_TAG=0 bash scripts/bump-release.sh # 提交与 tag 都留在本地，一个字节都不推
 ```
+
+**版本号口径（后缀区分，2026-11-28 用户定）**：本仓的版本形如 `X.Y.Z-asulada.N` ——
+核心号跟上游对齐（目前是并入的 v2.17.5 之后 → `2.17.6`），`-asulada.N` 是本仓在这个核心号
+上的第 N 次发布（首发 `2.17.6-asulada.1`，之后同核心号再发就 `rev` → `.2`、`.3`）。
+**不再**顺着上游 `2.17.x` 往上加：那样两条线会撞名，也看不出哪个是本仓的。
+客户端不受影响 —— 它的能力判断走 `connection.ready` 能力位，「最低版本」只是安装门槛
+（`AGENTS.md` §1）。改这套口径要同时改 `scripts/check-project-docs.ts` 的版本号正则与
+`scripts/bump-release.sh` 的算法，两处都在机检里。决策记录：`docs/decisions/2026-11.md`
+的「版本号后缀区分」。
 
 一条命令做完，因为版本号在这仓散在 **7 处**，手改必漏（漏一处 `pnpm docs:check` 就红）：
 `package.json` 的 `version`、`src/shared/version.ts` 的 `PLUGIN_VERSION`、
@@ -62,8 +73,9 @@ bash scripts/bump-release.sh --dry-run  # 只算、只打印，不动任何文�
 `README.md` 与 `README.en.md` 的当前版本行与页眉 badge、
 `docs/project/CHANGELOG-DEV.md` 的条目标题。前四处与两个 README 由
 `scripts/check-project-docs.ts` 严格核对；CHANGELOG 那条要求「有一条标题以该版本号开头」，
-所以脚本会把**最上面那条 `## 未发布 · …`** 抬成 `## vX.Y.Z · …`（其余「未发布」留着，
-那是下一版的内容）。**动手之前先在 CHANGELOG 顶部写一条「未发布」**，没有的话脚本直接拒绝。
+所以脚本会把**最上面那条 `## 未发布 · …`** 抬成 `## vX.Y.Z-asulada.N · …`。**动手之前先在
+CHANGELOG 顶部写一条「未发布」**，没有的话脚本直接拒绝 —— 同一版的多段改动写成那个标题下的
+小节（`###`），不要再并列几条 `## 未发布`，否则抬走的只有第一条，其余会永久停在「未发布」。
 
 它等价于这三步手工动作：
 
@@ -94,6 +106,12 @@ bash scripts/bump-release.sh --dry-run  # 只算、只打印，不动任何文�
 artifact（留 14 天）→ **用同一份 tgz 建 GitHub Release**（附件 = 不带 v 与带 v 两个
 tgz + `SHA256SUMS.txt`，正文取 `docs/project/.release-body-<ver>.md`，缺则取
 `CHANGELOG-DEV.md` 顶部一段）。
+
+> **本仓不留 `artifacts/SHA256SUMS.txt`**（2026-11-28 删掉了这份被跟踪的文件）：哈希由 CI 在
+> tag 那趟现算、随 Release 上传，仓里再存一份只会被误读成「这一版的校验值」——实际它记的是
+> 上游 v2.17.5 的哈希，本仓打出来的包必然对不上。`PITFALLS.md` 那条「产物校验值必须在打 tag
+> 之前提交」说的是上游 `release.sh` 的**本机打包**流程（打完包才知道哈希、于是有顺序陷阱），
+> 本仓没有那一步，别把那道闸搬回来。
 
 三条刻意的约束：
 

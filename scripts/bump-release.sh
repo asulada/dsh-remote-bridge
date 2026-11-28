@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 一条命令发版（本仓 fork 版）：抬版本号 → 把 CHANGELOG 顶部的「未发布」抬成这一版 →
-# 跑文档门禁 → 提交 → 打 tag → **只推 tag**。分支（main）由你自己推，脚本不碰：
+# 跑文档门禁 → 提交 → 打 tag → **只推 tag**（`PUSH_TAG=0` 连 tag 也不推，全留在本地）。
+# 分支（main）由你自己推，脚本不碰：
 # 顺序是「你先 push 分支 → 等 ci.yml 绿 → 再跑本脚本」，脚本只把发版这一步推出去。
 # tag 推上去之后 GitHub Actions 干活：tag 那趟（ubuntu + node 24 一格）跑 `pnpm pack`
 # （= prepack 的完整 `pnpm check`）打包 tgz 并建 GitHub Release。
@@ -18,19 +19,26 @@
 #   src/shared/version.ts 的 `PLUGIN_VERSION`
 #   docs/api/openapi.yaml 的 `info.version`
 #   docs/api/asyncapi.yaml 的 `info.version`
-#   README.md 的「项目信息」小节（`vX.Y.Z` + 页眉 badge）
+#   README.md 的「项目信息」小节（`vX.Y.Z-asulada.N` + 页眉 badge）
 #   README.en.md 的「Project」小节（同上）
-#   docs/project/CHANGELOG-DEV.md 的条目标题 `## vX.Y.Z · …`
+#   docs/project/CHANGELOG-DEV.md 的条目标题 `## vX.Y.Z-asulada.N · …`
 #
-# 前四处与 README 的中英两站由 scripts/check-project-docs.ts:310-370 严格核对；
+# 前四处与 README 的中英两站由 scripts/check-project-docs.ts 严格核对；
 # CHANGELOG 那条要求「有一条标题以该版本号开头」。所以脚本会把**最上面那条**
-# `## 未发布 · …` 抬成 `## vX.Y.Z · …`（其余「未发布」条目留着，它们是下一版的内容）。
+# `## 未发布 · …` 抬成 `## vX.Y.Z-asulada.N · …`（其余「未发布」条目留着，
+# 它们是下一版的内容）。
 #
-# ## 版本号怎么算
+# ## 版本号怎么算（后缀区分，2026-11-28 用户定）
 #
-# 基准 = max(`package.json` 的 `X.Y.Z`, 最近一个 `v*` tag 的 `X.Y.Z`)；
-# `vX.Y.Z` 还不存在 → 直接发 `X.Y.Z`（本仓仍是上游的 2.17.4、本地还没有 tag，
-# 所以第一个 tag 是 `v2.17.4`）；已存在才按级别抬位：patch 2.17.4→2.17.5。
+# 形如 `X.Y.Z-asulada.N`：核心号跟上游对齐，`-asulada.N` 是本仓在这个核心号上的第 N 次
+# 发布。口径与理由见 docs/decisions/2026-11.md 的「版本号后缀区分」。
+#
+#   patch/minor/major   核心号抬位、N 归 1：2.17.5 → 2.17.6-asulada.1
+#   rev                 核心号不动、N +1：2.17.6-asulada.1 → 2.17.6-asulada.2
+#
+# 后缀不改变任何运行时行为：客户端的能力判断走 `connection.ready` 的能力位，「最低版本」
+# 只是安装门槛（AGENTS.md §1）；本仓也不发 npm 包（发布者是上游）。核心号一律取
+# 「比已并入的上游版本高一格」，好让 `v2.17.6-asulada.1` 在 semver 排序上明确晚于上游 2.17.5。
 #
 # ## 三道拒绝
 #
@@ -39,10 +47,12 @@
 #   - 当前分支不是 `main` → 拒绝（`BRANCH=<名字>` 覆盖）
 #
 # 用法：
-#   bash scripts/bump-release.sh            # patch +1，提交 + 打 tag + 只推 tag（默认）
+#   bash scripts/bump-release.sh            # patch：核心号 +1、N 归 1（默认；提交+tag+推 tag）
+#   bash scripts/bump-release.sh rev        # 同一核心号再发一次：N +1
 #   bash scripts/bump-release.sh minor      # 次版本 +1
 #   bash scripts/bump-release.sh major      # 主版本 +1
 #   bash scripts/bump-release.sh --dry-run  # 只算、只打印，不动任何文件、不推
+#   PUSH_TAG=0 bash scripts/bump-release.sh # 提交与 tag 都留在本地，一个字节都不推
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -56,6 +66,10 @@ CHANGELOG="docs/project/CHANGELOG-DEV.md"
 BRANCH="${BRANCH:-main}"
 LEVEL="patch"
 DRY_RUN=0
+# 版本后缀的固定字（`X.Y.Z-asulada.N`）：换它就等于换一套版本号口径，别随手改。
+STEM="asulada"
+# 1 = 打 tag 后推 origin（默认）；0 = 连 tag 都不推，全留在本地（本机没网/没授权时用）。
+PUSH_TAG="${PUSH_TAG:-1}"
 
 say() { printf '\033[36m%s\033[0m\n' "$*"; }
 die() { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
@@ -63,10 +77,10 @@ warn() { printf '\033[33m! %s\033[0m\n' "$*" >&2; }
 
 for arg in "$@"; do
   case "$arg" in
-    major|minor|patch) LEVEL="$arg" ;;
+    major|minor|patch|rev) LEVEL="$arg" ;;
     --dry-run) DRY_RUN=1 ;;
-    -h|--help) sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) die "不认识的参数：${arg}（只接 major|minor|patch、--dry-run）" ;;
+    -h|--help) sed -n '2,55p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) die "不认识的参数：${arg}（只接 major|minor|patch|rev、--dry-run）" ;;
   esac
 done
 
@@ -76,28 +90,30 @@ done
 
 # ── 1. 现状 ────────────────────────────────────────────────────────────
 CUR_VER="$(grep -m1 '"version"' "$PKG" | sed -E 's/.*"version": *"([^"]+)".*/\1/')"
-[ -n "$CUR_VER" ] || die "$PKG 里没有 version 字段"
-case "$CUR_VER" in
+[ -n "$CUR_VER" ] || die "${PKG} 里没有 version 字段"
+
+# 拆成「核心号 X.Y.Z」+「后缀计数器 N」：2.17.6-asulada.1 → 核心 2.17.6、N=1。
+# 上游原样的 2.17.5（没有后缀）N 视为 0：第一次 patch/minor/major 就从 -asulada.1 起。
+CORE="${CUR_VER%%-*}"
+SUF=""
+if [ "$CUR_VER" != "$CORE" ]; then
+  PRE="${CUR_VER#"$CORE"-}"
+  case "$PRE" in
+    "$STEM".*) SUF="${PRE#"$STEM".}" ;;
+    *) die "${PKG} 的版本后缀是 ${PRE}，不是本仓的 ${STEM}.N（要按上游口径发版请用上游脚本）" ;;
+  esac
+fi
+case "$CORE" in
   [0-9]*.[0-9]*.[0-9]*) ;;
-  *) die "$PKG 里的版本不是 X.Y.Z：$CUR_VER" ;;
+  *) die "${PKG} 里的版本核心号不是 X.Y.Z：${CUR_VER}" ;;
+esac
+case "${SUF:-0}" in
+  *[!0-9]*) die "后缀计数器不是整数：${CUR_VER}" ;;
 esac
 
 LAST_TAG="$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n1 || true)"
-LAST_VER="${LAST_TAG#v}"
-[ -z "$LAST_TAG" ] && LAST_VER="0.0.0"
 
-# 取两个 X.Y.Z 里大的那个。不用 `sort -V`：macOS 自带 sort 没 -V（BSD）。
-max_ver() {
-  awk -v a="$1" -v b="$2" 'BEGIN{
-    split(a, A, "."); split(b, B, ".");
-    for (i = 1; i <= 3; i++) {
-      if (A[i] + 0 != B[i] + 0) { print (A[i] + 0 > B[i] + 0 ? a : b); exit }
-    }
-    print a
-  }'
-}
-
-bump() { # $1=X.Y.Z $2=级别
+bump_core() { # $1=X.Y.Z  $2=级别
   local M m p
   IFS=. read -r M m p <<<"$1"
   case "$2" in
@@ -107,19 +123,23 @@ bump() { # $1=X.Y.Z $2=级别
   esac
 }
 
-BASE="$(max_ver "$CUR_VER" "$LAST_VER")"
-if git rev-parse -q --verify "refs/tags/v$BASE" >/dev/null; then
-  NEW_VER="$(bump "$BASE" "$LEVEL")"
-  REASON="v$BASE 已存在，$LEVEL +1"
-else
-  NEW_VER="$BASE"
-  REASON="v$BASE 还没出现过，首个 tag 就用它"
-fi
+case "$LEVEL" in
+  rev)
+    [ -n "$SUF" ] || die "当前版本 ${CUR_VER} 还没有后缀，第一次发版请用 patch/minor/major（会从 -${STEM}.1 起）"
+    NEW_VER="${CORE}-${STEM}.$((SUF + 1))"
+    REASON="核心号不动，后缀计数器 ${SUF} 抬到 $((SUF + 1))"
+    ;;
+  *)
+    NEW_CORE="$(bump_core "$CORE" "$LEVEL")"
+    NEW_VER="${NEW_CORE}-${STEM}.1"
+    REASON="核心号 ${CORE} 抬到 ${NEW_CORE}（${LEVEL} +1），后缀计数器归 1"
+    ;;
+esac
 NEW_TAG="v$NEW_VER"
 
-say "当前：package.json $CUR_VER ｜最近 tag：${LAST_TAG:-无}"
-say "基准：${BASE}（${REASON}）"
-say "目标：$NEW_VER ｜ tag $NEW_TAG ｜ 分支 $BRANCH"
+say "当前：package.json ${CUR_VER} ｜最近 tag：${LAST_TAG:-无}"
+say "算法：${REASON}"
+say "目标：${NEW_VER} ｜ tag ${NEW_TAG} ｜ 分支 ${BRANCH}"
 
 # CHANGELOG 顶部那条「未发布」抬成这一版；先算出来给 dry-run 看。
 ENTRY_LINE="$(grep -nE '^## 未发布 · ' "$CHANGELOG" | head -n1 || true)"
@@ -233,8 +253,12 @@ say "已打 tag：$NEW_TAG"
 
 # 只推 tag。分支（${BRANCH}）由你自己推 —— 脚本把这次版本号提交留在本地，等你 push 分支时
 # 一起上去。这样「什么时候发版」由人决定：先 push 分支等 ci.yml 绿，再回来跑本脚本。
-say "推 tag $NEW_TAG …（tag 那趟会跑 pnpm pack，把 tgz 挂上 GitHub Release）"
-git push origin "$NEW_TAG"
+if [ "${PUSH_TAG}" = "1" ]; then
+  say "推 tag ${NEW_TAG} …（tag 那趟会跑 pnpm pack，把 tgz 挂上 GitHub Release）"
+  git push origin "$NEW_TAG"
+else
+  warn "PUSH_TAG=0：tag ${NEW_TAG} 只在本机，没推。要发版时自己跑：git push origin ${NEW_TAG}"
+fi
 
 REMOTE_URL="$(git remote get-url origin 2>/dev/null || echo '')"
 SLUG="$(printf '%s' "$REMOTE_URL" | sed -E 's#.*[:/]([^/:]+/[^/:]+?)(\.git)?$#\1#')"
@@ -247,6 +271,11 @@ if git rev-parse --verify --quiet "origin/$BRANCH" >/dev/null 2>&1; then
   fi
 fi
 
-say "tag 推完了。看进度：https://github.com/${SLUG}/actions"
-say "Release 会落在：https://github.com/${SLUG}/releases/tag/${NEW_TAG}"
-say "分工：分支那趟跑 pnpm check（你自己推触发），tag 那趟 pnpm pack + 发版。"
+if [ "${PUSH_TAG}" = "1" ]; then
+  say "tag 推完了。看进度：https://github.com/${SLUG}/actions"
+  say "Release 会落在：https://github.com/${SLUG}/releases/tag/${NEW_TAG}"
+  say "分工：分支那趟跑 pnpm check（你自己推触发），tag 那趟 pnpm pack + 发版。"
+else
+  say "一个字节都没推。要发版就先把分支推上去让 ci.yml 绿，再 git push origin ${NEW_TAG}"
+  say "Release 会落在：https://github.com/${SLUG}/releases/tag/${NEW_TAG}"
+fi
