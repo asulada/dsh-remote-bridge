@@ -231,7 +231,7 @@ say "已提交：chore(release): $NEW_TAG"
 git tag -a "$NEW_TAG" -m "$NEW_TAG" "$(git rev-parse HEAD)"
 say "已打 tag：$NEW_TAG"
 
-# 只推 tag。分支（$BRANCH）由你自己推 —— 脚本把这次版本号提交留在本地，等你 push 分支时
+# 只推 tag。分支（${BRANCH}）由你自己推 —— 脚本把这次版本号提交留在本地，等你 push 分支时
 # 一起上去。这样「什么时候发版」由人决定：先 push 分支等 ci.yml 绿，再回来跑本脚本。
 say "推 tag $NEW_TAG …（tag 那趟会跑 pnpm pack，把 tgz 挂上 GitHub Release）"
 git push origin "$NEW_TAG"
