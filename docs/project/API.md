@@ -1054,7 +1054,7 @@ v2.8 新增，**现在是桥的第一协议面**：新能力只在这里落帧�
 | type | 说明 | 关键字段 |
 |---|---|---|
 | `ping` | 心跳 | — |
-| `subscribe` / `unsubscribe` | 事件流会话白名单过滤 | `subscribe`：非空 `sessionId`（可重复订阅多个会话）；缺省未订阅 = 接收所有已授权会话。订阅后只放行这些会话的事件，无 `sessionId` 的全局/文件帧仍放行；紧接着补推该会话待处理审批/提问（`replayed:true`）。`unsubscribe` 恢复全量 |
+| `subscribe` / `unsubscribe` | 事件流会话白名单过滤 | `subscribe`：非空 `sessionId`（可重复订阅多个会话）；缺省未订阅 = 接收所有已授权会话。订阅后只放行这些会话的事件，无 `sessionId` 的全局/文件帧仍放行；紧接着补推该会话待处理审批/提问（`replayed:true`）**与一次轮状态快照** `chat.session.status`（载荷 `{sessionId, running}`，2026-11-28 起；断线期间错过 `chat.turn.end` 的客户端靠它关掉「思考中」，查不到或不可见的会话则**不推**——宁可让客户端继续显示进行中，也不能凭空说已结束）。`unsubscribe` 恢复全量 |
 | `message` | 发消息（sessionId 可选，省略自动创建新会话） | `sessionId?`, `mode:'queue'|'steer'`, `content` (PromptContentPart[]), `clientTimeZone?`, `workspaceId?`, `cwd?` |
 | `workspaces` | 列工作区 | — |
 | `sessions` | 列会话（按授权过滤） | `archived?` |

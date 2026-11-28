@@ -973,6 +973,48 @@ export class MobileGatewayWsHandler {
     // 后台任务推送：订阅即持有该会话的 roster 流（授权在 retain 内再做一次；
     // 未授权订阅不启动内核流）。unsubscribe / 连接关闭时统一释放。
     void this.jobWatchers?.retain(state.connectionKey, state.principal, sessionId)
+    // 订阅即补推「这一轮还在不在跑」（`chat.session.status`）。
+    //
+    // 客户端清「思考中」只认三条事件：`chat.turn.end`、`chat.turn.failed`、
+    // `chat.session.status(running:false)` —— **全是变化事件**。手机侧断线（隧道抖动、
+    // 锁屏切后台、切会话）期间恰好错过它们，重新 subscribe 后就再没有真相来源：
+    // 正文早写完了，「思考中」一直挂着，直到退出会话重建内存状态。
+    // 这三条之外还有一条 `chat.session.status` 的**快照**，只能由这里补。
+    void this.pushSessionStatus(webSocket, state.principal, sessionId)
+  }
+
+  /**
+   * 订阅后补推一次该会话的当前轮状态。
+   *
+   * 为什么是「快照」而不是「等事件」：见 handleSubscribe 里的注释 —— 终局只有变化事件，
+   * 错过就没了。这里用 `sessions.list` 的 `running`（已经是按授权根过滤后的视图）补一次。
+   *
+   * 拿不到会话（已删、越权、内核 RPC 失败）时**什么都不推**：宁可不送，也不能凭空说
+   * 「已结束」—— 那会把真在跑的那轮 UI 关掉，比挂着更糟。
+   */
+  private async pushSessionStatus(webSocket: WebSocket, principal: Principal, sessionId: string): Promise<void> {
+    try {
+      // 归档与否都查一次：正在跑又被归档的会话极少，但漏了它就又回到「永远思考中」。
+      const [active, archived] = await Promise.all([
+        this.chat.listSessions(principal, { archived: false }).catch(() => []),
+        this.chat.listSessions(principal, { archived: true }).catch(() => []),
+      ])
+      const found = [...active, ...archived].find(item => item.id === sessionId)
+      if (found === undefined) return
+      // 查询期间连接可能已经关掉：stateOf 会重建状态，所以先查表再发。
+      if (!this.sockets.has(webSocket)) return
+      this.sendFrame(webSocket, {
+        kind: 'event',
+        data: {
+          id: randomUUID(),
+          type: 'chat.session.status',
+          time: Date.now(),
+          data: { sessionId, running: found.running === true },
+        },
+      })
+    } catch {
+      // 授权或内核 RPC 失败：保守地不推（与事件桥「宁可不送，不可越权」同一口径）。
+    }
   }
 
   private handleUnsubscribe(webSocket: WebSocket, _frame: ClientFrame): void {

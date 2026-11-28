@@ -847,6 +847,29 @@ describe('mobile gateway WebSocket (/ws/mobile) — server push', () => {
     const subscribed = frames.find(frame => frame.kind === 'subscribed')
     expect((subscribed?.data as { sessionId?: string }).sessionId).toBe('sess-1')
 
+    // 订阅后必须补推一次「这一轮还在不在跑」（`chat.session.status` 快照）。
+    //
+    // 手机侧「思考中」只由 `chat.turn.end` / `chat.turn.failed` / `chat.session.status`
+    // 三条**变化事件**清掉；断线（隧道抖动、锁屏切后台）期间恰好错过时，重新订阅若拿不到
+    // 快照就再没有真相来源 —— 正文早写完了，胶囊一直挂着（2026-11-28 用户报障）。
+    const statuses = (): Array<{ sessionId?: string; running?: boolean }> =>
+      frames
+        .filter(frame => frame.kind === 'event')
+        .map(frame => frame.data as { type?: string; data?: { sessionId?: string; running?: boolean } })
+        .filter(event => event.type === 'chat.session.status')
+        .map(event => event.data ?? {})
+    await new Promise(resolve => setTimeout(resolve, 40))
+    expect(statuses()).toEqual([{ sessionId: 'sess-1', running: false }])
+
+    // 反方向：查不到/不可见的会话订阅成功，但**什么都不推** —— 宁可让胶囊继续挂着，
+    // 也不能凭空说 `running:false` 把真在跑的那一轮 UI 关掉。
+    socket.send(JSON.stringify({ type: 'subscribe', sessionId: 'sess-not-mine' }))
+    await nextKind(frames, 'subscribed')
+    await new Promise(resolve => setTimeout(resolve, 80))
+    expect(statuses().some(status => status.sessionId === 'sess-not-mine')).toBe(false)
+    socket.send(JSON.stringify({ type: 'subscribe', sessionId: 'sess-1' }))
+    await nextKind(frames, 'subscribed')
+
     // 等一拍让过滤生效，发两条不同会话的事件。
     await new Promise(resolve => setTimeout(resolve, 20))
     events.emit({ id: 'ev-other', type: 'chat.delta', time: Date.now(), data: { rootId: root.id, sessionId: 'sess-other' } })

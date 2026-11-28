@@ -1,3 +1,24 @@
+## 未发布 · 订阅后补推轮状态快照（手机端「思考中」永挂）
+
+**起因**：2026-11-28 用户报障 —— 手机发完消息，正文都出来了，输入框上方那条带秒表的
+「思考中」胶囊一直挂着；退出会话再进来或重开 App 才正常。
+
+**根因**：客户端把「这一轮还在不在跑」全部建立在三条**变化事件**上
+（`chat.turn.end` / `chat.turn.failed` / `chat.session.status`）。而 `subscribe` 只补推
+待处理审批/提问、队列与目标首屏快照、job roster，**不补推当前轮的状态**。手机在回答期间断线
+（隧道抖动、锁屏切后台、切会话再回来）错过终局帧后，重新订阅也拿不到真相 —— 帧不会重发，
+客户端也没有兜底查询。
+
+**改法**：`ws-handler.ts` 的 `handleSubscribe` 末尾调 `pushSessionStatus`：查
+`listSessions`（`archived` 两种都查），找到就补推一条 `chat.session.status { sessionId, running }`。
+两条硬约束写进注释：① **查不到/不可见就什么都不推**（宁可让胶囊挂着，也不能凭空说
+`running:false` 关掉真在跑的那轮 UI）；② 不做在事件桥的 `fanOut` 里 —— 那是逐事件热路径，
+且「投递时」不等于「订阅时」。**纯加性**：客户端不认这条事件的老行为不变。
+
+**回归用例**：`tests/mobile-gateway-ws.spec.ts` 的「subscribe narrows…」并入两条断言 ——
+订阅 `sess-1` 后恰好收到一条 `{sessionId:'sess-1', running:false}`；订阅不可见的
+`sess-not-mine` 则一条都不推。坑位：`docs/project/PITFALLS.md` §订阅不补推轮状态。
+
 ## 未发布 · 授权根匹配改走 realpath 归一（CI 上 `workspaces` 帧空、`sessions` 会跟着空）
 
 **起因**：2026-11-27 第一次真跑 CI（Actions 之前被关着），macOS 与 Windows 用例红在
