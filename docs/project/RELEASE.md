@@ -50,7 +50,7 @@ GitHub 是**从站**：本机到 github.com:443 长期被阻断（实测 `Empty 
 上面的脚本与拓扑都属于上游。本仓只有一条可用路径，且已经机检化：
 
 ```sh
-bash scripts/bump-release.sh            # patch +1（默认）：改 7 处版本号 → 门禁 → 提交 → tag → 推
+bash scripts/bump-release.sh            # patch +1（默认）：改 7 处版本号 → 门禁 → 提交 → tag → **只推 tag**
 bash scripts/bump-release.sh minor      # 次版本 +1
 bash scripts/bump-release.sh major      # 主版本 +1
 bash scripts/bump-release.sh --dry-run  # 只算、只打印，不动任何文件
@@ -70,16 +70,25 @@ bash scripts/bump-release.sh --dry-run  # 只算、只打印，不动任何文�
 ```sh
 # 1) 改版本号（7 处）+ 把 CHANGELOG 顶部的「未发布」抬成这一版 —— 脚本代劳
 # 2) 提交：chore(release): vX.Y.Z
-# 3) 打 tag 并推：git tag -a vX.Y.Z -m vX.Y.Z && git push origin main && git push origin vX.Y.Z
+# 3) 打 tag 并**只推 tag**：git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z
 ```
 
 三道拒绝：工作区有别的 tracked 改动、该 tag 已存在、当前不在 `main`
 （`ALLOW_DIRTY=1` / `BRANCH=<名字>` 可覆盖，`--dry-run` 只看不算）。
 
-**打包发生在推 tag 之后，由 CI 做，不在本机。** `git push origin main` 那一步不产生任何包、
-也不产生 Release —— 它只是让门禁先跑一遍给人看。想省这一步也行：tag push 自己会在 tag 上
-跑一遍完整门禁（`ci.yml` 监听所有 push），所以「只推 tag、后补 main」也能发出版来；
-差别只在万一门禁红，tag 已经躺在远端了。
+**脚本不推分支** —— `main` 是你的，什么时候发版也是你的。推荐顺序：
+
+1. 你自己 push 分支，等 `ci.yml` 绿（这一趟跑四道门）；
+2. 再跑 `scripts/bump-release.sh`：它提交那 7 处版本号、打 tag，**只把 tag 推上去**；
+3. 脚本末尾会念一句「origin/main 比本地少 N 个提交（含这次版本号提交）」——
+   等你打算让 `main` 也看见这次版本号提交时，自己 `git push origin main` 补上。
+
+好处是分支上永远不会出现「推上去但没人验过」的版本号提交：远端唯一可能红的东西，
+是 tag 触发的那一趟。
+
+**打包发生在推 tag 之后，由 CI 做，不在本机。** tag push 自己会在 tag 上跑一遍完整门禁
+（`ci.yml` 监听所有 push，tag 也算 push），所以 tag 那趟自己就是「先验后发」；
+差别只在万一门禁红，tag 已经躺在远端了 —— 修法见本节末尾。
 
 `ci.yml` 的 `core` job 在 tag push 时会做四件事：跑四道门 → `pnpm pack` → 上传
 artifact（留 14 天）→ **用同一份 tgz 建 GitHub Release**（附件 = 不带 v 与带 v 两个

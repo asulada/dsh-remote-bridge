@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # 一条命令发版（本仓 fork 版）：抬版本号 → 把 CHANGELOG 顶部的「未发布」抬成这一版 →
-# 跑文档门禁 → 提交 → 打 tag → 推。推上去之后 GitHub Actions 自己干活：分支那趟跑
-# `pnpm check`，tag 那趟（ubuntu + node 24 一格）打包 tgz 并建 GitHub Release。
+# 跑文档门禁 → 提交 → 打 tag → **只推 tag**。分支（main）由你自己推，脚本不碰：
+# 顺序是「你先 push 分支 → 等 ci.yml 绿 → 再跑本脚本」，脚本只把发版这一步推出去。
+# tag 推上去之后 GitHub Actions 干活：tag 那趟（ubuntu + node 24 一格）跑 `pnpm pack`
+# （= prepack 的完整 `pnpm check`）打包 tgz 并建 GitHub Release。
 #
 # ## 为什么不复用 scripts/release.sh / pack-release.sh
 #
@@ -37,7 +39,7 @@
 #   - 当前分支不是 `main` → 拒绝（`BRANCH=<名字>` 覆盖）
 #
 # 用法：
-#   bash scripts/bump-release.sh            # patch +1，提交 + 打 tag + 推（默认）
+#   bash scripts/bump-release.sh            # patch +1，提交 + 打 tag + 只推 tag（默认）
 #   bash scripts/bump-release.sh minor      # 次版本 +1
 #   bash scripts/bump-release.sh major      # 主版本 +1
 #   bash scripts/bump-release.sh --dry-run  # 只算、只打印，不动任何文件、不推
@@ -229,13 +231,22 @@ say "已提交：chore(release): $NEW_TAG"
 git tag -a "$NEW_TAG" -m "$NEW_TAG" "$(git rev-parse HEAD)"
 say "已打 tag：$NEW_TAG"
 
-say "推分支 $BRANCH …"
-git push origin "$BRANCH"
-say "推 tag $NEW_TAG …（CI 会打包 tgz 并建 GitHub Release）"
+# 只推 tag。分支（$BRANCH）由你自己推 —— 脚本把这次版本号提交留在本地，等你 push 分支时
+# 一起上去。这样「什么时候发版」由人决定：先 push 分支等 ci.yml 绿，再回来跑本脚本。
+say "推 tag $NEW_TAG …（tag 那趟会跑 pnpm pack，把 tgz 挂上 GitHub Release）"
 git push origin "$NEW_TAG"
 
 REMOTE_URL="$(git remote get-url origin 2>/dev/null || echo '')"
 SLUG="$(printf '%s' "$REMOTE_URL" | sed -E 's#.*[:/]([^/:]+/[^/:]+?)(\.git)?$#\1#')"
-say "推完了。看进度：https://github.com/${SLUG}/actions"
+
+# 分支落后就明说：tag 已经指到这个提交上了，但 origin 的 main 还没走到它。
+if git rev-parse --verify --quiet "origin/$BRANCH" >/dev/null 2>&1; then
+  AHEAD="$(git rev-list --count "origin/$BRANCH..HEAD" 2>/dev/null || echo 0)"
+  if [ "${AHEAD:-0}" -gt 0 ]; then
+    warn "origin/$BRANCH 比本地少 $AHEAD 个提交（含这次版本号提交）；本脚本不推分支，记得自己 git push origin $BRANCH"
+  fi
+fi
+
+say "tag 推完了。看进度：https://github.com/${SLUG}/actions"
 say "Release 会落在：https://github.com/${SLUG}/releases/tag/${NEW_TAG}"
-say "两家分工：分支那趟跑 pnpm check，tag 那趟打包 + 发版（ci.yml 不认 tag，只有 release 那步认）。"
+say "分工：分支那趟跑 pnpm check（你自己推触发），tag 那趟 pnpm pack + 发版。"
