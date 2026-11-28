@@ -64,12 +64,12 @@ for arg in "$@"; do
     major|minor|patch) LEVEL="$arg" ;;
     --dry-run) DRY_RUN=1 ;;
     -h|--help) sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) die "不认识的参数：$arg（只接 major|minor|patch、--dry-run）" ;;
+    *) die "不认识的参数：${arg}（只接 major|minor|patch、--dry-run）" ;;
   esac
 done
 
 for f in "$PKG" "$VER_TS" "$OPENAPI" "$ASYNCAPI" "$README_ZH" "$README_EN" "$CHANGELOG"; do
-  [ -f "$f" ] || die "找不到 $f（请在仓根跑，或让脚本自己在仓根）"
+  [ -f "$f" ] || die "找不到 ${f}（请在仓根跑，或让脚本自己在仓根）"
 done
 
 # ── 1. 现状 ────────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ fi
 NEW_TAG="v$NEW_VER"
 
 say "当前：package.json $CUR_VER ｜最近 tag：${LAST_TAG:-无}"
-say "基准：$BASE（$REASON）"
+say "基准：${BASE}（${REASON}）"
 say "目标：$NEW_VER ｜ tag $NEW_TAG ｜ 分支 $BRANCH"
 
 # CHANGELOG 顶部那条「未发布」抬成这一版；先算出来给 dry-run 看。
@@ -157,7 +157,7 @@ if [ -n "$DIRTY" ]; then
 fi
 
 CUR_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-[ "$CUR_BRANCH" = "$BRANCH" ] || die "当前在 $CUR_BRANCH，不是 $BRANCH（用 BRANCH=$CUR_BRANCH 覆盖）"
+[ "$CUR_BRANCH" = "$BRANCH" ] || die "当前在 ${CUR_BRANCH}，不是 ${BRANCH}（用 BRANCH=$CUR_BRANCH 覆盖）"
 
 if git rev-parse -q --verify "refs/tags/$NEW_TAG" >/dev/null; then
   die "tag $NEW_TAG 已存在。重发同一版请先 git tag -d $NEW_TAG && git push origin :refs/tags/$NEW_TAG"
@@ -187,24 +187,24 @@ replace_sub() { # $1=文件 $2=字面量（正则元字符会被转义） $3=替
 }
 
 replace_sub "$PKG" "\"version\": \"$CUR_VER\"" "\"version\": \"$NEW_VER\""
-say "写入 $PKG：$NEW_VER"
+say "写入 ${PKG}：$NEW_VER"
 
 replace_line "$VER_TS" '^export const PLUGIN_VERSION' "export const PLUGIN_VERSION = '$NEW_VER'"
-say "写入 $VER_TS：PLUGIN_VERSION $NEW_VER"
+say "写入 ${VER_TS}：PLUGIN_VERSION $NEW_VER"
 
 # 两个 schema 的 info.version 都是文件里的第一处 `  version:`（缩进两格）。
 replace_line "$OPENAPI" '^  version: ' "  version: $NEW_VER"
 replace_line "$ASYNCAPI" '^  version: ' "  version: $NEW_VER"
-say "写入 $OPENAPI / $ASYNCAPI：info.version $NEW_VER"
+say "写入 $OPENAPI / ${ASYNCAPI}：info.version $NEW_VER"
 
 # README 两站各有两处：页眉 badge 与「项目信息 / Project」里的当前版本行。
 replace_sub "$README_ZH" "v$CUR_VER" "v$NEW_VER"
 replace_sub "$README_EN" "v$CUR_VER" "v$NEW_VER"
-say "写入 $README_ZH / $README_EN：v$CUR_VER → v$NEW_VER"
+say "写入 $README_ZH / ${README_EN}：v$CUR_VER → v$NEW_VER"
 
 if [ -n "$NEW_ENTRY" ]; then
   replace_line "$CHANGELOG" '^## 未发布 · ' "$NEW_ENTRY"
-  say "写入 $CHANGELOG：顶部「未发布」→「$NEW_TAG」"
+  say "写入 ${CHANGELOG}：顶部「未发布」→「${NEW_TAG}」"
 fi
 
 # 自查：三处硬判据（门禁会红的那三条，先自己看一眼）
